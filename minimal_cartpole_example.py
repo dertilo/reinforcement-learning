@@ -98,27 +98,6 @@ def gather_experience(experience_iter: Iterator, batch_size: int = 32):
     return exp_arrays
 
 
-def train_agent(agent: CartPoleAgent, env: gym.Env, train_steps=3_000):
-    optimizer = RMSprop(agent.parameters())
-    experience_iterator = iter(experience_generator(agent, env))
-
-    for it in tqdm(range(train_steps)):
-        with torch.no_grad():
-            agent.eval()
-            experience = gather_experience(experience_iterator, batch_size=32)
-            estimated_return = calc_estimated_return(agent, experience)
-
-        agent.train()
-        q_values = agent.calc_q_values(experience["obs"])
-        actions = torch.tensor(experience["action"]).unsqueeze(1)
-        q_selected = q_values.gather(1, actions).squeeze(1)
-
-        loss_value = F.mse_loss(q_selected, estimated_return)
-        optimizer.zero_grad()
-        loss_value.backward()
-        optimizer.step()
-
-
 def calc_estimated_return(agent, experience, discount=0.99):
     next_q_values = agent.calc_q_values(experience["next_obs"])
     max_next_value, _ = next_q_values.max(dim=1)
@@ -126,6 +105,31 @@ def calc_estimated_return(agent, experience, discount=0.99):
     next_reward = torch.tensor(experience["next_reward"], dtype=torch.float)
     estimated_return = next_reward + discount * max_next_value * mask
     return estimated_return
+
+
+def calc_loss(agent, estimated_return, observation, action):
+    q_values = agent.calc_q_values(observation)
+    actions_tensor = torch.tensor(action).unsqueeze(1)
+    q_selected = q_values.gather(1, actions_tensor).squeeze(1)
+    loss_value = F.mse_loss(q_selected, estimated_return)
+    return loss_value
+
+
+def train_agent(agent: CartPoleAgent, env: gym.Env, train_steps=3_000):
+    optimizer = RMSprop(agent.parameters())
+    experience_iterator = iter(experience_generator(agent, env))
+
+    for it in tqdm(range(train_steps)):
+        with torch.no_grad():
+            agent.eval()
+            exp = gather_experience(experience_iterator, batch_size=32)
+            estimated_return = calc_estimated_return(agent, exp)
+
+        agent.train()
+        loss_value = calc_loss(agent, estimated_return, exp["obs"], exp["action"])
+        optimizer.zero_grad()
+        loss_value.backward()
+        optimizer.step()
 
 
 if __name__ == "__main__":
