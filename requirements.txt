@@ -1,0 +1,5 @@
+gym_minigrid @ git+https://github.com/maximecb/gym-minigrid.git#egg=gym_minigrid
+util@git+https://git@github.com/dertilo/util.git#egg=util
+matplotlib
+scipy
+torch
