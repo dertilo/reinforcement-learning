@@ -12,7 +12,7 @@ except ImportError:
     pass
 
 
-def visualize_it(env: gym.Env, agent, pause_dur=0.0, seed=0, num_steps=1000):
+def visualize_it(env: gym.Env, agent, pause_dur=0.001, seed=0, num_steps=1000):
 
     set_seeds(seed)
     env.seed(seed)

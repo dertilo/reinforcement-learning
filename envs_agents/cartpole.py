@@ -4,6 +4,7 @@ import gym
 import numpy
 import torch
 import torch.nn as nn
+from gym.envs.classic_control import CartPoleEnv
 
 from abstract_agents import QModel
 from envs_agents.parallel_environment import SingleEnvWrapper, ParallelEnv
@@ -38,8 +39,8 @@ class CartPolePreprocessWrapper(gym.Env):
 
 class CartPoleDictEnvWrapper(gym.Env):
     def __init__(self, max_angle=12, max_num_steps=1000):
-        self.env = gym.make("CartPole-v1")
-        self.env.env.theta_threshold_radians = max_angle * 2 * math.pi / 360
+        self.env = CartPoleEnv()
+        # self.env.theta_threshold_radians = max_angle * 2 * math.pi / 360
         self.observation_space = self.env.observation_space
         self.action_space = self.env.action_space
         self.step_counter = 0
@@ -49,13 +50,15 @@ class CartPoleDictEnvWrapper(gym.Env):
         if isinstance(action, numpy.ndarray):
             action = action[0]
         assert isinstance(action, numpy.int64)
-        obs, reward, done, _ = self.env.step(action)
+        obs, _, done, _ = self.env.step(action)
         self.step_counter += 1
         if self.step_counter % self.max_num_steps == 0:
             done = True
         if done:
             reward = -10.0
             obs = self.env.reset()
+        else:
+            reward = 0.0
         return {"observation": obs, "reward": reward, "done": int(done)}
 
     def reset(self):
@@ -116,4 +119,4 @@ if __name__ == "__main__":
     agent = CartPoleAgent(env.observation_space, env.action_space)
     agent_step = agent.step(x)
     env.step(agent_step)
-    visualize_it(build_CartPoleEnv(num_envs=1, use_multiprocessing=False), agent)
+    visualize_it(env, agent)

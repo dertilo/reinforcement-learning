@@ -2,6 +2,7 @@ import gym
 import torch
 import torch.nn.functional as F
 from torch.optim.rmsprop import RMSprop
+import torch.nn as nn
 
 from abstract_agents import QModel
 from dictlist import DictList
@@ -55,6 +56,46 @@ def calc_estimated_future_return(
     return estimated_return
 
 
+def calc_loss(agent: QModel, estimated_return, exps):
+    agent.train()
+    q_values = agent.calc_q_values(exps.env_step)
+    q_selected = q_values.gather(1, exps.action.unsqueeze(1)).squeeze(1)
+    original_losses = F.mse_loss(q_selected, estimated_return, reduction="none")
+    # plt.plot(self.batch_idx*numpy.ones((50,)),original_losses.data.numpy(),'.')
+    loss_value = torch.mean(original_losses)
+    return loss_value
+
+
+def update_target_model(agent: nn.Module, target_model: nn.Module):
+    target_model.load_state_dict(agent.state_dict())
+    target_model.eval()
+
+
+def collect_experiences(
+    env_step_fun,
+    agent_step_fun,
+    exp_memory: ExperienceMemory,
+    num_rollout_steps,
+    batch_size: int,
+    num_envs,
+):
+
+    gather_exp_via_rollout(env_step_fun, agent_step_fun, exp_memory, num_rollout_steps)
+
+    indexes = torch.randint(0, len(exp_memory) - 1, (batch_size // num_envs,))
+    next_indexes = indexes + 1
+    batch_exp = DictList.build(
+        flatten_parallel_rollout(
+            {
+                "env_step": exp_memory.buffer[indexes].env,
+                "action": exp_memory.buffer[indexes].agent.actions,
+                "next_env_step": exp_memory.buffer[next_indexes].env,
+            }
+        )
+    )
+    return batch_exp
+
+
 class DQNAlgo(object):
     def __init__(
         self,
@@ -106,21 +147,28 @@ class DQNAlgo(object):
         with torch.no_grad():
             agent.eval()
 
-            def agent_step_fun(env_step):
-                return self.agent.step(env_step, 1.0)
-
-            def env_step_fun(act):
-                # env.render()
-                return self.env.step(act)
-
             gather_exp_via_rollout(
-                env_step_fun, agent_step_fun, self.exp_memory, len(self.exp_memory)
+                self.env.step,
+                lambda s: self.agent.step(s, 1.0),
+                self.exp_memory,
+                len(self.exp_memory),
             )
 
     def train_batch(self):
         with torch.no_grad():
             self.agent.eval()
-            exps = self.collect_experiences()
+
+            exps = collect_experiences(
+                self.env.step,
+                lambda s: self.agent.step(
+                    observation=s,
+                    random_action_proba=self.eps_schedule.value(self.batch_idx),
+                ),
+                self.exp_memory,
+                self.num_rollout_steps,
+                self.batch_size,
+                self.num_envs,
+            )
             estimated_return = calc_estimated_future_return(
                 self.agent,
                 self.target_model,
@@ -129,14 +177,7 @@ class DQNAlgo(object):
                 self.discount,
             )
 
-        self.agent.train()
-        q_values = self.agent(exps.env_step)
-        exp_actions = exps.action.unsqueeze(1)
-        q_selected = q_values.gather(1, exp_actions).squeeze(1)
-
-        original_losses = F.mse_loss(q_selected, estimated_return, reduction="none")
-        # plt.plot(self.batch_idx*numpy.ones((50,)),original_losses.data.numpy(),'.')
-        loss_value = torch.mean(original_losses)
+        loss_value = calc_loss(self.agent, estimated_return, exps)
         self.optimizer.zero_grad()
         loss_value.backward()
 
@@ -146,8 +187,7 @@ class DQNAlgo(object):
 
         self.batch_idx += 1
         if self.batch_idx % self.target_model_update_interval == 0:
-            self.target_model.load_state_dict(self.agent.state_dict())
-            self.target_model.eval()
+            update_target_model(self.agent, self.target_model)
 
         def get_metrics_to_log(log, last_n_steps):
             keep = min(len(log["log_episode_rewards"]), last_n_steps)
@@ -162,30 +202,6 @@ class DQNAlgo(object):
             return metrics
 
         return get_metrics_to_log(self.exp_memory.log, 20)
-
-    def collect_experiences(self):
-        def agent_step_fun(env_step):
-            eps = self.eps_schedule.value(self.batch_idx)
-            return self.agent.step(env_step, eps)
-
-        gather_exp_via_rollout(
-            self.env.step, agent_step_fun, self.exp_memory, self.num_rollout_steps
-        )
-
-        indexes = torch.randint(
-            0, len(self.exp_memory) - 1, (self.batch_size // self.num_envs,)
-        )
-        next_indexes = indexes + 1
-        batch_exp = DictList.build(
-            flatten_parallel_rollout(
-                {
-                    "env_step": self.exp_memory.buffer[indexes].env,
-                    "action": self.exp_memory.buffer[indexes].agent.actions,
-                    "next_env_step": self.exp_memory.buffer[next_indexes].env,
-                }
-            )
-        )
-        return batch_exp
 
     def train_model(
         self,

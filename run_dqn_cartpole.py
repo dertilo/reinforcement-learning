@@ -2,6 +2,8 @@ import argparse
 import os
 import pprint
 import sys
+
+import gym
 import torch
 
 from dqn_algo import DQNAlgo
@@ -13,16 +15,16 @@ from visualize import visualize_it
 if __name__ == "__main__":
     storage_path = os.getcwd() + "/storage"
 
-    num_batches = 5_000
+    num_batches = 3000
 
     params = {
         "model_name": "cartpole-ddqn-1e-0p-%dkb" % (int(num_batches / 1000)),
-        "seed": 4,
+        "seed": 1,
         "num_batches": num_batches,
         "num_rollout_steps": 1,
         "memory_size": 1000,
-        "initial_eps_value": 0.01,
-        "final_eps_value": 0.001,
+        "initial_eps_value": 0.001,
+        "final_eps_value": 0.0001,
         "end_of_interpolation": num_batches,
         "num_processes": 0,
         "num_envs": 1,
@@ -61,4 +63,4 @@ if __name__ == "__main__":
         final_eps_value=args.final_eps_value,
         end_of_interpolation=args.end_of_interpolation,
     )
-    visualize_it(envs, q_model)
+    # visualize_it(envs, q_model)
