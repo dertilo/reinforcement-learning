@@ -35,6 +35,26 @@ class LinearAndConstantSchedule(object):
             return self.final_value
 
 
+def calc_estimated_future_return(
+    agent: QModel,
+    target_model: QModel,
+    next_env_steps,
+    use_double_dqn=True,
+    discount=0.99,
+):
+    if use_double_dqn:
+        target_q = target_model.calc_q_values(next_env_steps)
+        model_q = agent.calc_q_values(next_env_steps)
+        max_next_value = target_q.gather(
+            1, model_q.argmax(dim=1, keepdim=True)
+        ).squeeze(1)
+    else:
+        max_next_value, _ = target_model.calc_q_values(next_env_steps).max(dim=1)
+    mask = torch.tensor((1 - next_env_steps.done), dtype=torch.float)
+    estimated_return = next_env_steps.reward + discount * max_next_value * mask
+    return estimated_return
+
+
 class DQNAlgo(object):
     def __init__(
         self,
@@ -97,34 +117,16 @@ class DQNAlgo(object):
                 env_step_fun, agent_step_fun, self.exp_memory, len(self.exp_memory)
             )
 
-        # done_obs = self.exp_memory.buffer[:-1].env.observation[self.exp_memory.buffer[1:].env.done, :]
-        # x = done_obs[:,0]
-        # theta = done_obs[:,2]
-        # done =  x.lt(-self.env.env.env.env.env.x_threshold) \
-        #         + x.gt(self.env.env.env.env.env.x_threshold) \
-        #         + theta.lt(-self.env.env.env.env.env.theta_threshold_radians) \
-        #         + theta.gt(self.env.env.env.env.env.theta_threshold_radians)
-        # print(Counter(self.exp_memory.buffer.agent.actions.squeeze().numpy().tolist()))
-
     def train_batch(self):
         with torch.no_grad():
             self.agent.eval()
             exps = self.collect_experiences()
-            # print(Counter(self.exp_memory.buffer.agent.actions.squeeze().numpy().tolist()))
-            next_env_steps = exps.next_env_step
-
-            if self.double_dqn:
-                target_q = self.target_model(next_env_steps)
-                model_q = self.agent(next_env_steps)
-                max_next_value = target_q.gather(
-                    1, model_q.argmax(dim=1, keepdim=True)
-                ).squeeze(1)
-            else:
-                max_next_value, _ = self.target_model(next_env_steps).max(dim=1)
-
-            mask = torch.tensor((1 - next_env_steps.done), dtype=torch.float)
-            estimated_return = (
-                next_env_steps.reward + self.discount * max_next_value * mask
+            estimated_return = calc_estimated_future_return(
+                self.agent,
+                self.target_model,
+                exps.next_env_step,
+                self.double_dqn,
+                self.discount,
             )
 
         self.agent.train()

@@ -62,6 +62,9 @@ class QModel(nn.Module):
     def forward(self, observation: Dict) -> torch.Tensor:
         raise NotImplementedError
 
+    def calc_q_values(self, observation: Dict) -> torch.Tensor:
+        return self.forward(observation)
+
     def step(
         self, observation: Dict[str, torch.Tensor], eps=0.001
     ) -> Dict[str, torch.Tensor]:
