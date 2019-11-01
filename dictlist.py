@@ -27,13 +27,17 @@ class DictList(dict):
             dict.__getitem__(self, key)[index] = value
 
     @classmethod
-    def build(cls,d:dict):
-        return DictList(**{k:cls.build(v) if isinstance(v,dict) else v for k,v in d.items()})
+    def build(cls, d: dict):
+        return DictList(
+            **{k: cls.build(v) if isinstance(v, dict) else v for k, v in d.items()}
+        )
 
 
-if __name__ == '__main__':
-    d = DictList({'d1':DictList({"a": [[1, 2], [3, 4]], "b": [[5], [6]]}),'c':[1,2]})
+if __name__ == "__main__":
+    d = DictList(
+        {"d1": DictList({"a": [[1, 2], [3, 4]], "b": [[5], [6]]}), "c": [1, 2]}
+    )
     print(d.keys())
     print(d[0])
-    d[1]=d[0]
+    d[1] = d[0]
     print(d)

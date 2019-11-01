@@ -7,6 +7,7 @@ import csv
 import logging
 import sys
 
+
 def create_folders_if_necessary(path):
     dirname = os.path.dirname(path)
     if not os.path.isdir(dirname):
@@ -22,21 +23,21 @@ def set_seeds(seed):
 
 
 def calc_stats(array):
-    if len(array)>0:
+    if len(array) > 0:
         stats = {
-            'mean': numpy.mean(array),
-            'median': numpy.median(array),
-            'std': numpy.std(array),
-            'min': numpy.amin(array),
-            'max': numpy.amax(array)
+            "mean": numpy.mean(array),
+            "median": numpy.median(array),
+            "std": numpy.std(array),
+            "min": numpy.amin(array),
+            "max": numpy.amax(array),
         }
     else:
         stats = {
-            'mean': numpy.NaN,
-            'median': numpy.NaN,
-            'std': numpy.NaN,
-            'min': numpy.NaN,
-            'max': numpy.NaN
+            "mean": numpy.NaN,
+            "median": numpy.NaN,
+            "std": numpy.NaN,
+            "min": numpy.NaN,
+            "max": numpy.NaN,
         }
 
     return stats
@@ -72,8 +73,8 @@ def get_logger(model_dir):
         format="%(message)s",
         handlers=[
             logging.FileHandler(filename=path),
-            logging.StreamHandler(sys.stdout)
-        ]
+            logging.StreamHandler(sys.stdout),
+        ],
     )
 
     return logging.getLogger()

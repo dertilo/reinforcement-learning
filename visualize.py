@@ -11,15 +11,16 @@ try:
 except ImportError:
     pass
 
-def visualize_it(env:gym.Env,agent,pause_dur=0.0,seed=0,num_steps=1000):
+
+def visualize_it(env: gym.Env, agent, pause_dur=0.0, seed=0, num_steps=1000):
 
     set_seeds(seed)
     env.seed(seed)
-    c=0
+    c = 0
     obs = env.reset()
     while True:
-        c+=1
-        if pause_dur>0.0:
+        c += 1
+        if pause_dur > 0.0:
             time.sleep(pause_dur)
         is_open = env.render()
 
@@ -28,8 +29,9 @@ def visualize_it(env:gym.Env,agent,pause_dur=0.0,seed=0,num_steps=1000):
 
         if not is_open:
             break
-        if c>num_steps:
+        if c > num_steps:
             break
+
 
 # if __name__ == '__main__':
 #     model_path = '/home/tilo/hpc/torch-rl/storage/snake-a2c-1e-100kb-4p/'
