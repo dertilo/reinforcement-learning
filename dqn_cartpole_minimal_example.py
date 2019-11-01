@@ -1,5 +1,5 @@
 import time
-from typing import Iterator
+from typing import Iterator, Dict
 import gym
 import torch
 import torch.nn as nn
@@ -51,16 +51,18 @@ class CartPoleAgent(nn.Module):
         return int(actions.numpy()[0])
 
 
-def visualize_it(env: gym.Env, agent: CartPoleAgent):
-    max_steps = 1000
+def visualize_it(env: gym.Env, agent: CartPoleAgent, max_steps=1000):
+
     while True:
         obs = env.reset()
         for steps in range(max_steps):
             is_open = env.render()
+            if not is_open:
+                return
 
             action = agent.step_single(obs)
             obs, reward, done, info = env.step(action)
-            if not is_open or done:
+            if done:
                 break
         if steps < max_steps - 1:
             print("only %d steps" % steps)
@@ -98,7 +100,9 @@ def gather_experience(experience_iter: Iterator, batch_size: int = 32):
     return exp_arrays
 
 
-def calc_estimated_return(agent, experience, discount=0.99):
+def calc_estimated_return(
+    agent: CartPoleAgent, experience: Dict[str, np.ndarray], discount=0.99
+):
     next_q_values = agent.calc_q_values(experience["next_obs"])
     max_next_value, _ = next_q_values.max(dim=1)
     mask = torch.tensor((1 - experience["next_done"]), dtype=torch.float)
