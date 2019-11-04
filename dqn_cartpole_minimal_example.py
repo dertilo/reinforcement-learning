@@ -1,5 +1,5 @@
 import time
-from typing import Iterator, Dict
+from typing import Iterator, Dict, NamedTuple, Generator
 import gym
 import torch
 import torch.nn as nn
@@ -69,7 +69,22 @@ def visualize_it(env: gym.Env, agent: CartPoleAgent, max_steps=1000):
             print("only %d steps" % steps)
 
 
-def experience_generator(agent, env: gym.Env):
+class Experience(NamedTuple):
+    obs: np.ndarray
+    next_obs: np.ndarray
+    action: int
+    next_reward: float
+    next_done: bool
+
+class ExperienceArrays(NamedTuple):
+    obs: np.ndarray
+    next_obs: np.ndarray
+    action: np.ndarray
+    next_reward: np.ndarray
+    next_done: np.ndarray
+
+
+def experience_generator(agent, env: gym.Env)->Generator[Experience,None,None]:
 
     while True:
         obs = env.reset()
@@ -77,36 +92,37 @@ def experience_generator(agent, env: gym.Env):
             action = agent.step_single(obs)
             next_obs, _, next_done, info = env.step(action)
 
-            yield {
-                "obs": obs,
-                "next_obs": next_obs,
-                "action": action,
-                "next_reward": -10.0 if next_done else 1.0,
-                "next_done": next_done,
-            }
-
+            yield Experience(
+                **{
+                    "obs": obs,
+                    "next_obs": next_obs,
+                    "action": action,
+                    "next_reward": -10.0 if next_done else 1.0,
+                    "next_done": next_done,
+                }
+            )
             obs = next_obs
 
             if next_done:
                 break
 
 
-def gather_experience(experience_iter: Iterator, batch_size: int = 32):
+def gather_experience(experience_iter: Iterator, batch_size: int = 32)->ExperienceArrays:
     experience_batch = [next(experience_iter) for _ in range(batch_size)]
     exp_arrays = {
-        key: np.array([exp[key] for exp in experience_batch])
-        for key in experience_batch[0].keys()
+        key: np.array([getattr(exp,key) for exp in experience_batch])
+        for key in Experience._fields
     }
-    return exp_arrays
+    return ExperienceArrays(**exp_arrays)
 
 
 def calc_estimated_return(
-    agent: CartPoleAgent, experience: Dict[str, np.ndarray], discount=0.99
+    agent: CartPoleAgent, exp: ExperienceArrays, discount=0.99
 ):
-    next_q_values = agent.calc_q_values(experience["next_obs"])
+    next_q_values = agent.calc_q_values(exp.next_obs)
     max_next_value, _ = next_q_values.max(dim=1)
-    mask = torch.tensor((1 - experience["next_done"]), dtype=torch.float)
-    next_reward = torch.tensor(experience["next_reward"], dtype=torch.float)
+    mask = torch.tensor((1 - exp.next_done), dtype=torch.float)
+    next_reward = torch.tensor(exp.next_reward, dtype=torch.float)
     estimated_return = next_reward + discount * max_next_value * mask
     return estimated_return
 
@@ -121,18 +137,17 @@ def calc_loss(agent, estimated_return, observation, action):
 
 def train_agent(agent: CartPoleAgent, env: gym.Env, num_batches=3_000, batch_size=32):
     optimizer = RMSprop(agent.parameters())
-    experience_iterator = iter(experience_generator(agent, env))
+    exp_iter = iter(experience_generator(agent, env))
 
     for it in tqdm(range(num_batches)):
         with torch.no_grad():
             agent.eval()
-            exp = gather_experience(experience_iterator, batch_size=batch_size)
-            for d in exp["next_done"]:
-                yield d
+            exp:ExperienceArrays = gather_experience(exp_iter, batch_size=batch_size)
             estimated_return = calc_estimated_return(agent, exp)
+            yield exp.next_done
 
         agent.train()
-        loss_value = calc_loss(agent, estimated_return, exp["obs"], exp["action"])
+        loss_value = calc_loss(agent, estimated_return, exp.obs, exp.action)
         optimizer.zero_grad()
         loss_value.backward()
         optimizer.step()
@@ -155,10 +170,9 @@ def plot_average_game_length(dones, avg_size):
 
 if __name__ == "__main__":
     env = CartPoleEnv()
-    x = env.reset()
-    obs, reward, done, info = env.step(1)
     agent = CartPoleAgent(env.observation_space, env.action_space)
     batch_size = 32
-    dones = list(train_agent(agent, env, num_batches=3000, batch_size=batch_size))
+    dones_g = train_agent(agent, env, num_batches=3000, batch_size=batch_size)
+    dones = [done for done_array in dones_g for done in done_array]
 
-    plot_average_game_length(dones,avg_size=300 * batch_size)
+    plot_average_game_length(dones, avg_size=300 * batch_size)
