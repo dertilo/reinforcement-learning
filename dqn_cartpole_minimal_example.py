@@ -8,6 +8,7 @@ from gym.envs.classic_control import CartPoleEnv
 from torch.optim.rmsprop import RMSprop
 import torch.nn.functional as F
 from tqdm import tqdm
+from util.util_methods import iterable_to_batches
 
 
 def mix_in_some_random_actions(policy_actions, eps, num_actions):
@@ -72,8 +73,8 @@ def experience_generator(agent, env: gym.Env):
 
     while True:
         obs = env.reset()
-        action = agent.step_single(obs)
         for it in range(1000):
+            action = agent.step_single(obs)
             next_obs, _, next_done, info = env.step(action)
 
             yield {
@@ -85,7 +86,6 @@ def experience_generator(agent, env: gym.Env):
             }
 
             obs = next_obs
-            action = agent.step_single(obs)
 
             if next_done:
                 break
@@ -119,14 +119,16 @@ def calc_loss(agent, estimated_return, observation, action):
     return loss_value
 
 
-def train_agent(agent: CartPoleAgent, env: gym.Env, train_steps=3_000):
+def train_agent(agent: CartPoleAgent, env: gym.Env, num_batches=3_000, batch_size=32):
     optimizer = RMSprop(agent.parameters())
     experience_iterator = iter(experience_generator(agent, env))
 
-    for it in tqdm(range(train_steps)):
+    for it in tqdm(range(num_batches)):
         with torch.no_grad():
             agent.eval()
-            exp = gather_experience(experience_iterator, batch_size=32)
+            exp = gather_experience(experience_iterator, batch_size=batch_size)
+            for d in exp["next_done"]:
+                yield d
             estimated_return = calc_estimated_return(agent, exp)
 
         agent.train()
@@ -136,10 +138,27 @@ def train_agent(agent: CartPoleAgent, env: gym.Env, train_steps=3_000):
         optimizer.step()
 
 
+def plot_average_game_length(dones, avg_size):
+    batches = list(iterable_to_batches(dones, avg_size))
+    avg_game_length = [avg_size / (1 + sum(b)) for b in batches]
+    from matplotlib import pyplot as plt
+
+    x = [k * avg_size for k in range(len(avg_game_length))]
+    plt.plot(x, avg_game_length)
+    plt.xscale("linear")
+    plt.yscale("log")
+    plt.ylabel("avg game-length")
+    plt.xlabel("window index (averaged over %d steps)" % avg_size)
+    plt.savefig("images/learn_curve_dqn_cartpole.png")
+    visualize_it(env, agent)
+
+
 if __name__ == "__main__":
     env = CartPoleEnv()
     x = env.reset()
     obs, reward, done, info = env.step(1)
     agent = CartPoleAgent(env.observation_space, env.action_space)
-    train_agent(agent, env)
-    visualize_it(env, agent)
+    batch_size = 32
+    dones = list(train_agent(agent, env, num_batches=3000, batch_size=batch_size))
+
+    plot_average_game_length(dones,avg_size=300 * batch_size)
