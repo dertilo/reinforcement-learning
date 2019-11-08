@@ -56,12 +56,14 @@ def fill_with_zeros(dim, d):
     return DictList(**{k: create_zeros(dim, v) for k, v in d.items()})
 
 
-def create_zeros(dim, v):
-    return (
-        torch.zeros(*(dim,) + v.shape, dtype=v.dtype)
-        if not isinstance(v, dict)
-        else fill_with_zeros(dim, v)
-    )
+def create_zeros(dim: int, v):
+    if torch.is_tensor(v):
+        z = torch.zeros(*(dim,) + v.shape, dtype=v.dtype)
+    elif isinstance(v, dict):
+        z = fill_with_zeros(dim, v)
+    else:
+        assert False
+    return z
 
 
 class ExperienceMemory(object):
@@ -101,6 +103,34 @@ class ExperienceMemory(object):
         return self.current_idx
 
 
+class CartPoleDictEnv(CartPoleEnv):
+    def step(self, action: DictList):
+        agent_action = int(action.actions.numpy()[0])
+        obs, reward, done, info = super().step(agent_action)
+        obs = np.expand_dims(obs, 0)
+        return self._torchify(
+            {
+                "observation": obs.astype("float32"),
+                "reward": np.array([reward]),
+                "done": np.array([int(done)]),
+            }
+        )
+
+    def reset(self):
+        obs = super().reset()
+        obs = np.expand_dims(obs, 0)
+        return self._torchify(
+            {
+                "observation": obs.astype("float32"),
+                "reward": np.array([0]),
+                "done": np.array([int(False)]),
+            }
+        )
+
+    def _torchify(self, d):
+        return {k: torch.from_numpy(v) for k, v in d.items()}
+
+
 class CartPoleA2CAgent(nn.Module):
     def __init__(self, obs_space, action_space):
         super().__init__()
@@ -120,24 +150,24 @@ class CartPoleA2CAgent(nn.Module):
 
         self.critic = nn.Sequential(nn.Linear(self.embedding_size, 1))
 
-    def forward(self, obs_batch):
-
-        observation_tensor = torch.tensor(obs_batch, dtype=torch.float)
+    def forward(self, observation_tensor):
 
         embedding = self.nn(observation_tensor)
 
-        dist = Categorical(logits=F.log_softmax(self.actor(embedding), dim=1))
+        scores = self.actor(embedding)
+        dist = Categorical(logits=F.log_softmax(scores, dim=1))
 
         value = self.critic(embedding).squeeze(1)
 
         return dist, value
 
-    def step(self, obs):
-        obs_batch = np.expand_dims(obs, 0)
-        actions = self.step_batch(obs_batch)
-        return int(actions["actions"].numpy()[0])
+    def calc_dist_value(self, env_step: DictList):
+        return self.forward(env_step.observation)
 
-    def step_batch(self, obs_batch, argmax=False) -> Dict[str, Any]:
+    def step(self, env_step, argmax=False) -> Dict[str, Any]:
+        obs_batch = env_step["observation"]
+        # if len(obs_batch.shape)<2:
+        #     obs_batch = np.expand_dims(obs_batch,0)
         dist, values = self.forward(obs_batch)
 
         if argmax:
@@ -191,7 +221,7 @@ def train_batch(w: World, p: A2CParams, optimizer):
     inds = np.arange(0, p.num_rollout_steps)
 
     sb = exps[inds]
-    dist, value, _ = agent(sb.env_steps)
+    dist, value = w.agent.calc_dist_value(sb.env_steps)
 
     entropy = dist.entropy().mean()
 
@@ -203,7 +233,7 @@ def train_batch(w: World, p: A2CParams, optimizer):
 
     optimizer.zero_grad()
     loss.backward()
-    torch.nn.utils.clip_grad_norm_(agent.parameters(), p.max_grad_norm)
+    torch.nn.utils.clip_grad_norm_(w.agent.parameters(), p.max_grad_norm)
     optimizer.step()
 
 
@@ -217,9 +247,9 @@ def gather_exp_via_rollout(
 
 
 def collect_experiences(w: World, params: A2CParams):
-    agent.set_hidden_state(w.exp_mem[-1])
     assert w.exp_mem.current_idx == 0
     w.exp_mem.last_becomes_first()
+
     gather_exp_via_rollout(
         w.env.step, w.agent.step, w.exp_mem, params.num_rollout_steps
     )
@@ -247,13 +277,12 @@ def collect_experiences(w: World, params: A2CParams):
 
 if __name__ == "__main__":
     params = A2CParams()
-    env = CartPoleEnv()
+    env = CartPoleDictEnv()
     agent: CartPoleA2CAgent = CartPoleA2CAgent(env.observation_space, env.action_space)
     # x = env.reset()
     # agent.step(x)
 
     initial_env_step = env.reset()
-
     with torch.no_grad():
         initial_agent_step = agent.step(initial_env_step)
 
