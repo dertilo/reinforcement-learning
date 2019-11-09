@@ -1,7 +1,7 @@
 import os
 import sys
 
-from a2c import A2CAlgo, A2CParams
+from a2c import A2CParams, train_a2c_model
 from envs_agents.snake import build_SnakeEnv, SnakeA2CAgent
 from rl_utils import set_seeds, save_model, load_model
 from visualize import visualize_it
@@ -23,16 +23,7 @@ def run_a2c_experiments(storage_path):
         envs = build_SnakeEnv(num_envs=params.num_envs, num_processes=params.num_processes)
         agent = SnakeA2CAgent(envs.observation_space, envs.action_space)
 
-        if torch.cuda.is_available():
-            agent.cuda()
-
-        algo = A2CAlgo(
-            envs,
-            agent,
-            params
-        )
-
-        algo.train_model(params.num_batches)
+        train_a2c_model(agent,envs,params,num_batches)
 
         save_model(agent, model_dir)
 

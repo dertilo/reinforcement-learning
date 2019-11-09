@@ -14,15 +14,16 @@ from train_methods import (
 )
 from experience_memory import ExperienceMemory
 
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 class RLParams(NamedTuple):
     gae_lambda: float = 0.95
     discount: float = 0.99
     num_rollout_steps: int = 5
 
 
-def generalized_advantage_estimation(
-    rewards, values, dones, p:RLParams
-):
+def generalized_advantage_estimation(rewards, values, dones, p: RLParams):
     assert values.shape[0] == 1 + p.num_rollout_steps
     advantage_buffer = torch.zeros(rewards.shape[0] - 1, rewards.shape[1])
     next_advantage = 0
@@ -48,7 +49,7 @@ class A2CParams(NamedTuple):
     entropy_coef: float = 0.01
     value_loss_coef: float = 0.5
     max_grad_norm: float = 0.5
-    rlparams:RLParams=RLParams()
+    rlparams: RLParams = RLParams()
     lr: float = 5e-4
     num_recurr_steps: int = 1  # not yet implemented
     seed: int = 3
@@ -79,10 +80,14 @@ def build_experience_memory(env, agent: ACModel, p: A2CParams) -> ExperienceMemo
 
 
 def collect_experiences_calc_advantage(w: World, p: A2CParams):
-    w.agent.set_hidden_state(w.exp_mem[-1])#TODO(tilo): not yet implemented recurrence
+    w.agent.set_hidden_state(
+        w.exp_mem[-1]
+    )  # TODO(tilo): not yet implemented recurrence
     assert w.exp_mem.current_idx == 0
     w.exp_mem.last_becomes_first()
-    gather_exp_via_rollout(w.env.step, w.agent.step, w.exp_mem, p.rlparams.num_rollout_steps)
+    gather_exp_via_rollout(
+        w.env.step, w.agent.step, w.exp_mem, p.rlparams.num_rollout_steps
+    )
     assert w.exp_mem.last_written_idx == p.rlparams.num_rollout_steps
 
     env_steps = w.exp_mem.buffer.env
@@ -91,7 +96,7 @@ def collect_experiences_calc_advantage(w: World, p: A2CParams):
         rewards=env_steps.reward,
         values=agent_steps.v_values,
         dones=env_steps.done,
-        p=p.rlparams
+        p=p.rlparams,
     )
     return DictList(
         **{
@@ -103,48 +108,42 @@ def collect_experiences_calc_advantage(w: World, p: A2CParams):
     )
 
 
-class A2CAlgo(object):
-    def __init__(self, env: gym.Env, agent: ACModel, p: A2CParams):
+def calc_loss(w: World, p: A2CParams, sb: DictList):
+    dist, value, _ = w.agent(sb.env_steps)
+    entropy = dist.entropy().mean()
+    policy_loss = -(dist.log_prob(sb.agent_steps.actions) * sb.advantages).mean()
+    value_loss = (value - sb.returnn).pow(2).mean()
+    loss = policy_loss - p.entropy_coef * entropy + p.value_loss_coef * value_loss
+    return loss
 
-        assert p.rlparams.num_rollout_steps % p.num_recurr_steps == 0
 
-        self.p: A2CParams = p
+def train_batch(w: World, p: A2CParams, optimizer):
+    with torch.no_grad():
+        exps = collect_experiences_calc_advantage(w, p)
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    w.agent.train()
+    loss = calc_loss(w, p, exps)
 
-        exp_mem = build_experience_memory(env, agent, p)
+    optimizer.zero_grad()
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(w.agent.parameters(), p.max_grad_norm)
+    optimizer.step()
+    return float(torch.mean(exps.env_steps.reward).numpy())
 
-        self.w = World(env, agent, exp_mem)
 
-        self.optimizer = torch.optim.Adam(agent.parameters(), p.lr)
+def train_a2c_model(agent, env, p: A2CParams, num_batches: int):
+    if torch.cuda.is_available():
+        agent.cuda()
 
-    def train_batch(self):
-        with torch.no_grad():
-            exps = collect_experiences_calc_advantage(self.w,self.p)
+    assert p.rlparams.num_rollout_steps % p.num_recurr_steps == 0
 
-        self.w.agent.train()
-        loss = self.calc_loss(exps)
+    exp_mem = build_experience_memory(env, agent, p)
 
-        self.optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.w.agent.parameters(), self.p.max_grad_norm)
-        self.optimizer.step()
-        return float(torch.mean(exps.env_steps.reward).numpy())
+    w = World(env, agent, exp_mem)
 
-    def calc_loss(self, sb):
-        dist, value, _ = self.w.agent(sb.env_steps)
-        entropy = dist.entropy().mean()
-        policy_loss = -(dist.log_prob(sb.agent_steps.actions) * sb.advantages).mean()
-        value_loss = (value - sb.returnn).pow(2).mean()
-        loss = (
-            policy_loss
-            - self.p.entropy_coef * entropy
-            + self.p.value_loss_coef * value_loss
-        )
-        return loss
+    optimizer = torch.optim.Adam(agent.parameters(), p.lr)
 
-    def train_model(self, num_batches):
-        with tqdm(postfix=[{"running_per_step_reward": 0.0}]) as pbar:
-            for k in range(num_batches):
-                r = self.train_batch()
-                update_progess_bar(pbar, {"running_per_step_reward": r})
+    with tqdm(postfix=[{"running_per_step_reward": 0.0}]) as pbar:
+        for k in range(num_batches):
+            r = train_batch(w, p, optimizer)
+            update_progess_bar(pbar, {"running_per_step_reward": r})
