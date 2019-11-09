@@ -7,6 +7,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from gym.envs.classic_control import CartPoleEnv
 from torch.distributions import Categorical
+from tqdm import tqdm
+
+from dqn_cartpole_minimal_example import plot_average_game_length
 
 
 class DictList(dict):
@@ -106,24 +109,23 @@ class ExperienceMemory(object):
 class CartPoleDictEnv(CartPoleEnv):
     def step(self, action: DictList):
         agent_action = int(action.actions.numpy()[0])
-        obs, reward, done, info = super().step(agent_action)
-        obs = np.expand_dims(obs, 0)
-        return self._torchify(
-            {
-                "observation": obs.astype("float32"),
-                "reward": np.array([reward]),
-                "done": np.array([int(done)]),
-            }
-        )
+        obs, _, done, info = super().step(agent_action)
+
+        if done:
+            obs = self.reset()["observation"]
+        reward = -10.0 if done else 1.0
+        return self._form_output(obs, reward, done)
 
     def reset(self):
         obs = super().reset()
-        obs = np.expand_dims(obs, 0)
+        return self._form_output(obs, 0, False)
+
+    def _form_output(self, obs, reward, done):
         return self._torchify(
             {
-                "observation": obs.astype("float32"),
-                "reward": np.array([0]),
-                "done": np.array([int(False)]),
+                "observation": np.expand_dims(obs, 0).astype("float32"),
+                "reward": np.array([reward]),
+                "done": np.array([int(done)]),
             }
         )
 
@@ -200,7 +202,7 @@ class A2CParams(NamedTuple):
     entropy_coef: float = 0.01
     value_loss_coef: float = 0.5
     max_grad_norm: float = 0.5
-    num_rollout_steps: int = 5
+    num_rollout_steps: int = 32
     discount: float = 0.99
     lr: float = 7e-4
     gae_lambda: float = 0.95
@@ -214,27 +216,26 @@ class World(NamedTuple):
 
 def train_batch(w: World, p: A2CParams, optimizer):
     with torch.no_grad():
-        exps = collect_experiences(w, p)
+        w.agent.eval()
+        exps = collect_experiences_calc_advantage(w, p)
 
     w.agent.train()
-
-    inds = np.arange(0, p.num_rollout_steps)
-
-    sb = exps[inds]
-    dist, value = w.agent.calc_dist_value(sb.env_steps)
-
-    entropy = dist.entropy().mean()
-
-    policy_loss = -(dist.log_prob(sb.agent_steps.actions) * sb.advantages).mean()
-
-    value_loss = (value - sb.returnn).pow(2).mean()
-
-    loss = policy_loss - p.entropy_coef * entropy + p.value_loss_coef * value_loss
+    loss = calc_loss(exps, w, p)
 
     optimizer.zero_grad()
     loss.backward()
     torch.nn.utils.clip_grad_norm_(w.agent.parameters(), p.max_grad_norm)
     optimizer.step()
+    return exps.env_steps.done.numpy()
+
+
+def calc_loss(exps: ExperienceMemory, w: World, p: A2CParams):
+    dist, value = w.agent.calc_dist_value(exps.env_steps)
+    entropy = dist.entropy().mean()
+    policy_loss = -(dist.log_prob(exps.agent_steps.actions) * exps.advantages).mean()
+    value_loss = (value - exps.returnn).pow(2).mean()
+    loss = policy_loss - p.entropy_coef * entropy + p.value_loss_coef * value_loss
+    return loss
 
 
 def gather_exp_via_rollout(
@@ -246,7 +247,7 @@ def gather_exp_via_rollout(
         exp_mem.store_single(DictList.build({"env": env_step, "agent": agent_step}))
 
 
-def collect_experiences(w: World, params: A2CParams):
+def collect_experiences_calc_advantage(w: World, params: A2CParams):
     assert w.exp_mem.current_idx == 0
     w.exp_mem.last_becomes_first()
 
@@ -275,6 +276,23 @@ def collect_experiences(w: World, params: A2CParams):
     )
 
 
+def visualize_it(env: gym.Env, agent: CartPoleA2CAgent, max_steps=1000):
+
+    while True:
+        env_step = env.reset()
+        for steps in range(max_steps):
+            is_open = env.render()
+            if not is_open:
+                return
+
+            action = agent.step(env_step)
+            env_step = env.step(DictList.build(action))
+            if env_step["done"]:
+                break
+        if steps < max_steps - 1:
+            print("only %d steps" % steps)
+
+
 if __name__ == "__main__":
     params = A2CParams()
     env = CartPoleDictEnv()
@@ -297,5 +315,15 @@ if __name__ == "__main__":
 
     optimizer = torch.optim.Adam(agent.parameters(), params.lr)  #
 
-    for k in range(2):
-        train_batch(w, params, optimizer)
+    dones = [
+        done for k in tqdm(range(1000)) for done in train_batch(w, params, optimizer)
+    ]
+
+    plot_average_game_length(
+        env,
+        agent,
+        dones,
+        avg_size=100 * 32,
+        visualize_fun=visualize_it,
+        png_file="images/learn_curve_a2c_cartpole.png",
+    )
