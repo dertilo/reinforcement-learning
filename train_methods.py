@@ -4,6 +4,7 @@ import torch
 from typing import Dict, Callable
 
 from dictlist import DictList
+from experience_memory import ExperienceMemory
 
 
 def flatten_parallel_rollout(d):
@@ -78,56 +79,6 @@ def step_logging_fun(log: Dict, exp: DictList):
     mask = torch.tensor(1 - done, dtype=torch.float)
     log["rewards_sum"] *= mask
     log["num_steps_sum"] *= mask
-
-
-def fill_with_zeros(dim, d):
-    return DictList(
-        **{
-            k: torch.zeros(*(dim,) + v.shape, dtype=v.dtype)
-            if not isinstance(v, dict)
-            else fill_with_zeros(dim, v)
-            for k, v in d.items()
-        }
-    )
-
-
-class ExperienceMemory(object):
-    def __init__(self, buffer_capacity: int, datum: DictList, logging_fun):
-
-        self.buffer_capacity = buffer_capacity
-        self.current_idx = 0
-        self.last_written_idx = 0
-        self.buffer = fill_with_zeros(buffer_capacity, datum)
-        self.logging_fun = logging_fun
-        self.log = {}
-
-        self.store_single(datum)
-
-    def __len__(self):
-        return len(self.buffer)
-
-    def __getitem__(self, index):
-        return self.buffer[index]
-
-    def __setitem__(self, index, d):
-        for key, value in d.items():
-            dict.__getitem__(self, key)[index] = value
-
-    def inc_idx(self):
-        self.last_written_idx = self.current_idx
-        self.current_idx = (self.current_idx + 1) % self.buffer_capacity
-
-    def store_single(self, datum: DictList):
-        self.logging_fun(self.log, datum)
-        self.buffer[self.current_idx] = datum
-        self.inc_idx()
-        return self.current_idx
-
-    def last_becomes_first(self):
-        assert self.current_idx == 0
-        self.buffer[self.current_idx] = self.buffer[-1]
-        self.inc_idx()
-        return self.current_idx
 
 
 def gather_exp_via_rollout(

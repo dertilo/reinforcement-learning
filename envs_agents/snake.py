@@ -358,8 +358,8 @@ def minimal_test():
 
     env = build_SnakeEnv(num_envs=1, num_processes=0)
     x = env.reset()
-    # agent = SnakeA2CAgent(env.observation_space, env.action_space)
-    agent = SnakeDQNAgent(env.observation_space, env.action_space)
+    agent = SnakeA2CAgent(env.observation_space, env.action_space)
+    # agent = SnakeDQNAgent(env.observation_space, env.action_space)
     visualize_it(env, agent, pause_dur=0.1,num_steps=1000)
 
 
