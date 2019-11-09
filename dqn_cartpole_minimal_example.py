@@ -155,11 +155,8 @@ def train_agent(agent: CartPoleAgent, env: gym.Env, num_batches=3_000, batch_siz
 
 
 def plot_average_game_length(
-    env,
-    agent,
     dones,
     avg_size,
-    visualize_fun=visualize_it,
     png_file="images/learn_curve_dqn_cartpole.png",
 ):
     batches = list(iterable_to_batches(dones, avg_size))
@@ -173,7 +170,6 @@ def plot_average_game_length(
     plt.ylabel("game-length (averaged over %d steps)" % avg_size)
     plt.xlabel("game-step")
     plt.savefig(png_file)
-    visualize_fun(env, agent)
 
 
 if __name__ == "__main__":
@@ -183,4 +179,6 @@ if __name__ == "__main__":
     dones_g = train_agent(agent, env, num_batches=1000, batch_size=batch_size)
     dones = [done for done_array in dones_g for done in done_array]
 
-    plot_average_game_length(env, agent, dones, avg_size=300 * batch_size)
+    plot_average_game_length(dones, avg_size=1000)
+    visualize_it(env, agent)
+

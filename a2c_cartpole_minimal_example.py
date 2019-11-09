@@ -202,9 +202,9 @@ class A2CParams(NamedTuple):
     entropy_coef: float = 0.01
     value_loss_coef: float = 0.5
     max_grad_norm: float = 0.5
-    num_rollout_steps: int = 32
+    num_rollout_steps: int = 4
     discount: float = 0.99
-    lr: float = 7e-4
+    lr: float = 1e-2
     gae_lambda: float = 0.95
 
 
@@ -294,7 +294,7 @@ def visualize_it(env: gym.Env, agent: CartPoleA2CAgent, max_steps=1000):
 
 
 if __name__ == "__main__":
-    params = A2CParams()
+    params = A2CParams(lr=0.01,num_rollout_steps=32)
     env = CartPoleDictEnv()
     agent: CartPoleA2CAgent = CartPoleA2CAgent(env.observation_space, env.action_space)
     # x = env.reset()
@@ -313,17 +313,15 @@ if __name__ == "__main__":
         w.env.step, w.agent.step, w.exp_mem, params.num_rollout_steps
     )
 
-    optimizer = torch.optim.Adam(agent.parameters(), params.lr)  #
+    optimizer = torch.optim.RMSprop(agent.parameters(), params.lr)
 
     dones = [
-        done for k in tqdm(range(1000)) for done in train_batch(w, params, optimizer)
+        done for k in tqdm(range(4000)) for done in train_batch(w, params, optimizer)
     ]
 
     plot_average_game_length(
-        env,
-        agent,
         dones,
-        avg_size=100 * 32,
-        visualize_fun=visualize_it,
+        avg_size=1000,
         png_file="images/learn_curve_a2c_cartpole.png",
     )
+    visualize_it(env,agent)
