@@ -47,7 +47,7 @@ class A2CParams(NamedTuple):
     discount: float = 0.99
     lr: float = 5e-4
     gae_lambda: float = 0.95
-    num_recurr_steps: int = 1 # not yet implemented
+    num_recurr_steps: int = 1  # not yet implemented
     seed: int = 3
     model_name: str = "snake-a2c"
     num_envs: int = 8
@@ -55,73 +55,78 @@ class A2CParams(NamedTuple):
     num_processes: int = 0
 
 
+class World(NamedTuple):
+    env: gym.Env
+    agent: ACModel
+    exp_mem: ExperienceMemory
+
+
 class A2CAlgo(object):
     def __init__(self, env: gym.Env, agent: ACModel, p: A2CParams):
 
         assert p.num_rollout_steps % p.num_recurr_steps == 0
 
-        self.env = env
-        self.agent = agent
         self.p: A2CParams = p
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        initial_env_step = self.env.reset()
-        self.num_envs = len(initial_env_step["reward"])
+        exp_mem = self.build_experience_memory(env, agent, p)
+
+        self.w = World(env, agent, exp_mem)
+
+        self.optimizer = torch.optim.Adam(agent.parameters(), p.lr)
+
+    def build_experience_memory(self, env, agent: ACModel, p: A2CParams):
+        initial_env_step = env.reset()
 
         with torch.no_grad():
-            initial_agent_step = self.agent.step(initial_env_step)
-
+            initial_agent_step = agent.step(initial_env_step)
         initial_exp = DictList.build(
             {"env": initial_env_step, "agent": initial_agent_step}
         )
-        self.exp_memory = ExperienceMemory(self.p.num_rollout_steps + 1, initial_exp)
-        gather_exp_via_rollout(
-            self.env.step, self.agent.step, self.exp_memory, self.p.num_rollout_steps
-        )
 
-        self.num_frames = self.p.num_rollout_steps * self.num_envs
+        exp_mem = ExperienceMemory(p.num_rollout_steps + 1, initial_exp)
 
-        self.optimizer = torch.optim.Adam(self.agent.parameters(), p.lr)  #
+        gather_exp_via_rollout(env.step, agent.step, exp_mem, self.p.num_rollout_steps)
+
+        return exp_mem
 
     def train_batch(self):
         with torch.no_grad():
             exps = self.collect_experiences_calc_advantage()
 
-        self.agent.train()
+        self.w.agent.train()
         loss = self.calc_loss(exps)
 
         self.optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.agent.parameters(), self.p.max_grad_norm)
+        torch.nn.utils.clip_grad_norm_(self.w.agent.parameters(), self.p.max_grad_norm)
         self.optimizer.step()
         return float(torch.mean(exps.env_steps.reward).numpy())
 
     def calc_loss(self, sb):
-        dist, value, _ = self.agent(sb.env_steps)
+        dist, value, _ = self.w.agent(sb.env_steps)
         entropy = dist.entropy().mean()
-        policy_loss = -(
-                dist.log_prob(sb.agent_steps.actions) * sb.advantages
-        ).mean()
+        policy_loss = -(dist.log_prob(sb.agent_steps.actions) * sb.advantages).mean()
         value_loss = (value - sb.returnn).pow(2).mean()
         loss = (
-                policy_loss
-                - self.p.entropy_coef * entropy
-                + self.p.value_loss_coef * value_loss
+            policy_loss
+            - self.p.entropy_coef * entropy
+            + self.p.value_loss_coef * value_loss
         )
         return loss
 
     def collect_experiences_calc_advantage(self):
-        self.agent.set_hidden_state(self.exp_memory[-1])
-        assert self.exp_memory.current_idx == 0
-        self.exp_memory.last_becomes_first()
+        self.w.agent.set_hidden_state(self.w.exp_mem[-1])
+        assert self.w.exp_mem.current_idx == 0
+        self.w.exp_mem.last_becomes_first()
         gather_exp_via_rollout(
-            self.env.step, self.agent.step, self.exp_memory, self.p.num_rollout_steps
+            self.w.env.step, self.w.agent.step, self.w.exp_mem, self.p.num_rollout_steps
         )
-        assert self.exp_memory.last_written_idx == self.p.num_rollout_steps
+        assert self.w.exp_mem.last_written_idx == self.p.num_rollout_steps
 
-        env_steps = self.exp_memory.buffer.env
-        agent_steps = self.exp_memory.buffer.agent
+        env_steps = self.w.exp_mem.buffer.env
+        agent_steps = self.w.exp_mem.buffer.agent
         advantages = generalized_advantage_estimation(
             rewards=env_steps.reward,
             values=agent_steps.v_values,
