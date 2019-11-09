@@ -86,63 +86,32 @@ class A2CAlgo(object):
 
     def train_batch(self):
         with torch.no_grad():
-            exps = self.collect_experiences()
-
-        update_entropy = 0
-        update_value = 0
-        update_policy_loss = 0
-        update_value_loss = 0
-        update_loss = 0
+            exps = self.collect_experiences_calc_advantage()
 
         self.agent.train()
+        loss = self.calc_loss(exps)
 
-        inds = numpy.arange(0, self.num_frames, self.p.num_recurr_steps)
-        self.agent.set_hidden_state(exps[inds].agent_steps)
-        for i in range(self.p.num_recurr_steps):
-            sb = exps[inds + i]
-            dist, value, _ = self.agent(sb.env_steps)
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.agent.parameters(), self.p.max_grad_norm)
+        self.optimizer.step()
+        return float(torch.mean(exps.env_steps.reward).numpy())
 
-            entropy = dist.entropy().mean()
-
-            policy_loss = -(
+    def calc_loss(self, sb):
+        dist, value, _ = self.agent(sb.env_steps)
+        entropy = dist.entropy().mean()
+        policy_loss = -(
                 dist.log_prob(sb.agent_steps.actions) * sb.advantages
-            ).mean()
-
-            value_loss = (value - sb.returnn).pow(2).mean()
-
-            loss = (
+        ).mean()
+        value_loss = (value - sb.returnn).pow(2).mean()
+        loss = (
                 policy_loss
                 - self.p.entropy_coef * entropy
                 + self.p.value_loss_coef * value_loss
-            )
+        )
+        return loss
 
-            # Update batch values
-
-            update_entropy += entropy.item()
-            update_value += value.mean().item()
-            update_policy_loss += policy_loss.item()
-            update_value_loss += value_loss.item()
-            update_loss += loss
-
-        # Update update values
-
-        update_entropy /= self.p.num_recurr_steps
-        update_value /= self.p.num_recurr_steps
-        update_policy_loss /= self.p.num_recurr_steps
-        update_value_loss /= self.p.num_recurr_steps
-        update_loss /= self.p.num_recurr_steps
-
-        # Update actor-critic
-
-        self.optimizer.zero_grad()
-        update_loss.backward()
-        # update_grad_norm = sum(p.grad.data.norm(2) ** 2 for p in self.agent.parameters()) ** 0.5
-        torch.nn.utils.clip_grad_norm_(self.agent.parameters(), self.p.max_grad_norm)
-        self.optimizer.step()
-        avg_reward = float(torch.mean(exps.env_steps.reward).numpy())
-        return avg_reward
-
-    def collect_experiences(self):
+    def collect_experiences_calc_advantage(self):
         self.agent.set_hidden_state(self.exp_memory[-1])
         assert self.exp_memory.current_idx == 0
         self.exp_memory.last_becomes_first()
