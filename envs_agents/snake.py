@@ -12,8 +12,9 @@ from gym import spaces
 from gym_minigrid.minigrid import MiniGridEnv, Goal, Lava, Grid
 from torch.distributions.categorical import Categorical
 
-from torch_rl.algos.abstract_agents import initialize_parameters, QModel, ACModel
-from torch_rl.penv import SingleEnvWrapper, ParallelEnv
+from envs_agents.abstract_agents import ACModel, initialize_parameters, QModel
+from envs_agents.parallel_environment import SingleEnvWrapper, ParallelEnv
+from visualize import visualize_it
 
 
 class Snake(object):
@@ -29,11 +30,7 @@ class Snake(object):
 
 
 class SnakeEnv(MiniGridEnv):
-    """
-    Empty grid environment, no obstacles, sparse reward
-    """
 
-    # Enumeration of possible actions
     class Actions(IntEnum):
         # Turn left, turn right, move forward
         left = 0
@@ -67,7 +64,6 @@ class SnakeEnv(MiniGridEnv):
         self.grid.set(*random.choice(empties), Goal())
 
     def _gen_grid(self, width, height):
-        # Create an empty grid
         self.grid = Grid(width, height)
 
         self.grid.wall_rect(0, 0, width, height)
@@ -87,17 +83,6 @@ class SnakeEnv(MiniGridEnv):
 
     def reset(self):
         return super().reset()
-
-    # def gen_obs(self):
-    #     image = self.grid.encode()
-    #
-    #     obs = {
-    #         'image': image,
-    #         'direction': self.agent_dir,
-    #         'mission': self.mission
-    #     }
-    #
-    #     return obs
 
     def step(self, action):
         self.step_count += 1
@@ -186,18 +171,15 @@ class SnakeA2CAgent(ACModel):
             ]
         )
 
-        # Define memory
         if self.has_hiddenstate:
             self.memory_rnn = nn.LSTMCell(
                 self.image_embedding_size, self.semi_memory_size
             )
 
-        # Resize image embedding
         self.embedding_size = self.semi_memory_size
         # if self.use_text:
         #     self.embedding_size += self.text_embedding_size
 
-        # Define actor's model
         if isinstance(action_space, gym.spaces.Discrete):
             self.actor = nn.Sequential(
                 # nn.Linear(self.embedding_size, 64),
@@ -207,14 +189,12 @@ class SnakeA2CAgent(ACModel):
         else:
             raise ValueError("Unknown action space: " + str(action_space))
 
-        # Define critic's model
         self.critic = nn.Sequential(
             # nn.Linear(self.embedding_size, 64),
             # nn.Tanh(),
             nn.Linear(self.image_embedding_size, 1)
         )
 
-        # Initialize parameters correctly
         self.apply(initialize_parameters)
 
     @property
@@ -354,13 +334,6 @@ class SnakeWrapper(gym.Env):
         return self.env.seed(seed)
 
 
-#
-# register(
-#     id='MiniGrid-Snake-v0',
-#     entry_point='envs:SnakeEnv'
-# )
-
-
 def build_SnakeEnv(num_envs, num_processes):
     if num_processes == 0:
         assert num_envs == 1
@@ -382,13 +355,12 @@ def build_SnakeEnv(num_envs, num_processes):
 
 
 def minimal_test():
-    from torch_rl.visualize import visualize_it
 
     env = build_SnakeEnv(num_envs=1, num_processes=0)
     x = env.reset()
     # agent = SnakeA2CAgent(env.observation_space, env.action_space)
     agent = SnakeDQNAgent(env.observation_space, env.action_space)
-    visualize_it(env, agent, num_steps=1000)
+    visualize_it(env, agent, pause_dur=0.1,num_steps=1000)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ import argparse
 import gym
 import time
 
-from utils import set_seeds, load_model
+from rl_utils import set_seeds, load_model
 
 try:
     import gym_minigrid
