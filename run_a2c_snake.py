@@ -1,13 +1,9 @@
 import os
-import sys
-
 from a2c import A2CParams, train_a2c_model
-from envs_agents.snake import build_SnakeEnv, SnakeA2CAgent
+from envs_agents.snake.a2c_agent import SnakeA2CAgent
+from envs_agents.snake.snake_env import build_SnakeEnv
 from rl_utils import set_seeds, save_model, load_model
 from visualize import visualize_it
-
-import torch
-
 
 def run_a2c_experiments(storage_path):
     num_batches = 200
