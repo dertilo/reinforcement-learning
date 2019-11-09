@@ -1,3 +1,5 @@
+from typing import NamedTuple
+
 import gym
 import numpy
 import torch
@@ -37,35 +39,30 @@ def update_progess_bar(pbar, params: dict, f=0.95):
     pbar.update()
 
 
-class A2CAlgo(object):
-    def __init__(
-        self,
-        env: gym.Env,
-        agent: ACModel,
-        num_rollout_steps=None,
-        discount=0.99,
-        lr=7e-4,
-        gae_lambda=0.95,
-        entropy_coef=0.01,
-        value_loss_coef=0.5,
-        max_grad_norm=0.5,
-        num_recurr_steps=4,
-        rmsprop_alpha=0.99,
-        rmsprop_eps=1e-5,
-    ):
+class A2CParams(NamedTuple):
+    entropy_coef: float = 0.01
+    value_loss_coef: float = 0.5
+    max_grad_norm: float = 0.5
+    num_rollout_steps: int = 5
+    discount: float = 0.99
+    lr: float = 5e-4
+    gae_lambda: float = 0.95
+    num_recurr_steps: int = 1 # not yet implemented
+    seed: int = 3
+    model_name: str = "snake-a2c"
+    num_envs: int = 8
+    num_batches: int = 10
+    num_processes: int = 0
 
-        assert num_rollout_steps % num_recurr_steps == 0
+
+class A2CAlgo(object):
+    def __init__(self, env: gym.Env, agent: ACModel, p: A2CParams):
+
+        assert p.num_rollout_steps % p.num_recurr_steps == 0
 
         self.env = env
         self.agent = agent
-        self.num_rollout_steps = num_rollout_steps
-        self.discount = discount
-        self.lr = lr
-        self.gae_lambda = gae_lambda
-        self.entropy_coef = entropy_coef
-        self.value_loss_coef = value_loss_coef
-        self.max_grad_norm = max_grad_norm
-        self.num_recurr_steps = num_recurr_steps
+        self.p: A2CParams = p
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -78,15 +75,14 @@ class A2CAlgo(object):
         initial_exp = DictList.build(
             {"env": initial_env_step, "agent": initial_agent_step}
         )
-        self.exp_memory = ExperienceMemory(self.num_rollout_steps + 1, initial_exp)
+        self.exp_memory = ExperienceMemory(self.p.num_rollout_steps + 1, initial_exp)
         gather_exp_via_rollout(
-            self.env.step, self.agent.step, self.exp_memory, self.num_rollout_steps
+            self.env.step, self.agent.step, self.exp_memory, self.p.num_rollout_steps
         )
 
-        self.num_frames = self.num_rollout_steps * self.num_envs
+        self.num_frames = self.p.num_rollout_steps * self.num_envs
 
-        self.optimizer = torch.optim.Adam(self.agent.parameters(), lr)  #
-        # alpha=rmsprop_alpha, eps=rmsprop_eps)
+        self.optimizer = torch.optim.Adam(self.agent.parameters(), p.lr)  #
 
     def train_batch(self):
         with torch.no_grad():
@@ -100,9 +96,9 @@ class A2CAlgo(object):
 
         self.agent.train()
 
-        inds = numpy.arange(0, self.num_frames, self.num_recurr_steps)
+        inds = numpy.arange(0, self.num_frames, self.p.num_recurr_steps)
         self.agent.set_hidden_state(exps[inds].agent_steps)
-        for i in range(self.num_recurr_steps):
+        for i in range(self.p.num_recurr_steps):
             sb = exps[inds + i]
             dist, value, _ = self.agent(sb.env_steps)
 
@@ -116,8 +112,8 @@ class A2CAlgo(object):
 
             loss = (
                 policy_loss
-                - self.entropy_coef * entropy
-                + self.value_loss_coef * value_loss
+                - self.p.entropy_coef * entropy
+                + self.p.value_loss_coef * value_loss
             )
 
             # Update batch values
@@ -130,18 +126,18 @@ class A2CAlgo(object):
 
         # Update update values
 
-        update_entropy /= self.num_recurr_steps
-        update_value /= self.num_recurr_steps
-        update_policy_loss /= self.num_recurr_steps
-        update_value_loss /= self.num_recurr_steps
-        update_loss /= self.num_recurr_steps
+        update_entropy /= self.p.num_recurr_steps
+        update_value /= self.p.num_recurr_steps
+        update_policy_loss /= self.p.num_recurr_steps
+        update_value_loss /= self.p.num_recurr_steps
+        update_loss /= self.p.num_recurr_steps
 
         # Update actor-critic
 
         self.optimizer.zero_grad()
         update_loss.backward()
         # update_grad_norm = sum(p.grad.data.norm(2) ** 2 for p in self.agent.parameters()) ** 0.5
-        torch.nn.utils.clip_grad_norm_(self.agent.parameters(), self.max_grad_norm)
+        torch.nn.utils.clip_grad_norm_(self.agent.parameters(), self.p.max_grad_norm)
         self.optimizer.step()
         avg_reward = float(torch.mean(exps.env_steps.reward).numpy())
         return avg_reward
@@ -151,9 +147,9 @@ class A2CAlgo(object):
         assert self.exp_memory.current_idx == 0
         self.exp_memory.last_becomes_first()
         gather_exp_via_rollout(
-            self.env.step, self.agent.step, self.exp_memory, self.num_rollout_steps
+            self.env.step, self.agent.step, self.exp_memory, self.p.num_rollout_steps
         )
-        assert self.exp_memory.last_written_idx == self.num_rollout_steps
+        assert self.exp_memory.last_written_idx == self.p.num_rollout_steps
 
         env_steps = self.exp_memory.buffer.env
         agent_steps = self.exp_memory.buffer.agent
@@ -161,9 +157,9 @@ class A2CAlgo(object):
             rewards=env_steps.reward,
             values=agent_steps.v_values,
             dones=env_steps.done,
-            num_rollout_steps=self.num_rollout_steps,
-            discount=self.discount,
-            gae_lambda=self.gae_lambda,
+            num_rollout_steps=self.p.num_rollout_steps,
+            discount=self.p.discount,
+            gae_lambda=self.p.gae_lambda,
         )
         return DictList(
             **{
