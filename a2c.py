@@ -80,9 +80,6 @@ def build_experience_memory(env, agent: ACModel, p: A2CParams) -> ExperienceMemo
 
 
 def collect_experiences_calc_advantage(w: World, p: A2CParams):
-    w.agent.set_hidden_state(
-        w.exp_mem[-1]
-    )  # TODO(tilo): not yet implemented recurrence
     assert w.exp_mem.current_idx == 0
     w.exp_mem.last_becomes_first()
     gather_exp_via_rollout(
@@ -109,7 +106,7 @@ def collect_experiences_calc_advantage(w: World, p: A2CParams):
 
 
 def calc_loss(w: World, p: A2CParams, sb: DictList):
-    dist, value, _ = w.agent(sb.env_steps)
+    dist, value = w.agent(sb.env_steps)
     entropy = dist.entropy().mean()
     policy_loss = -(dist.log_prob(sb.agent_steps.actions) * sb.advantages).mean()
     value_loss = (value - sb.returnn).pow(2).mean()

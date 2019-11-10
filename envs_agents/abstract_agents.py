@@ -17,18 +17,14 @@ class ACModel(nn.Module):
         super().__init__()
 
     @abstractmethod
-    def forward(self, observation, hidden_state=None):
-        raise NotImplementedError
-
-    @abstractmethod
-    def set_hidden_state(self, hidden_state) -> None:
+    def forward(self, observation):
         raise NotImplementedError
 
     def step(
-        self, observation: Dict[str, torch.Tensor], hidden_state=None, argmax=False
+        self, observation: Dict[str, torch.Tensor], argmax=False
     ) -> Dict[str, Any]:
-        dist, values, self.hidden_state = self(
-            observation, hidden_state if hidden_state is not None else self.hidden_state
+        dist, values = self(
+            observation
         )
 
         if argmax:
@@ -42,7 +38,6 @@ class ACModel(nn.Module):
             "actions": actions,
             "v_values": values,
             "logprobs": logprob,
-            "hidden_states": self.hidden_state,
         }
 
 
