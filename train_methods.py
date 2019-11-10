@@ -85,7 +85,8 @@ def gather_exp_via_rollout(
     env_step_fun, agent_step_fun, exp_memory: ExperienceMemory, num_rollout_steps
 ):
     for _ in range(num_rollout_steps):
-        env_step = env_step_fun(exp_memory[exp_memory.last_written_idx].agent)
+        last_agent_step = exp_memory[exp_memory.last_written_idx].agent
+        env_step = env_step_fun(last_agent_step)
         agent_step = agent_step_fun(env_step)
         exp_memory.store_single(DictList.build({"env": env_step, "agent": agent_step}))
 

@@ -106,7 +106,7 @@ def collect_experiences_calc_advantage(w: World, p: A2CParams):
 
 
 def calc_loss(w: World, p: A2CParams, sb: DictList):
-    dist, value = w.agent(sb.env_steps)
+    dist, value = w.agent.calc_dist_value(sb.env_steps)
     entropy = dist.entropy().mean()
     policy_loss = -(dist.log_prob(sb.agent_steps.actions) * sb.advantages).mean()
     value_loss = (value - sb.returnn).pow(2).mean()

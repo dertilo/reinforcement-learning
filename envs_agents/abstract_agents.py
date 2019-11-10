@@ -1,12 +1,13 @@
 from abc import abstractmethod
-from typing import Dict, Any
+from typing import Dict, Any, NamedTuple
 
 import torch
 import torch.nn as nn
 
+
 def initialize_parameters(m):
     classname = m.__class__.__name__
-    if classname.find('Linear') != -1:
+    if classname.find("Linear") != -1:
         m.weight.data.normal_(0, 1)
         m.weight.data *= 1 / torch.sqrt(m.weight.data.pow(2).sum(1, keepdim=True))
         if m.bias is not None:
@@ -17,15 +18,11 @@ class ACModel(nn.Module):
         super().__init__()
 
     @abstractmethod
-    def forward(self, observation):
+    def calc_dist_value(self, observation):
         raise NotImplementedError
 
-    def step(
-        self, observation: Dict[str, torch.Tensor], argmax=False
-    ) -> Dict[str, Any]:
-        dist, values = self(
-            observation
-        )
+    def step(self, observation: Dict[str, torch.Tensor], argmax=False):
+        dist, values = self.calc_dist_value(observation)
 
         if argmax:
             actions = dist.probs.max(1, keepdim=True)[1]
@@ -34,11 +31,7 @@ class ACModel(nn.Module):
 
         logprob = dist.log_prob(actions)
 
-        return {
-            "actions": actions,
-            "v_values": values,
-            "logprobs": logprob,
-        }
+        return {"actions": actions, "v_values": values, "logprobs": logprob}
 
 
 def mix_in_some_random_actions(policy_actions, random_action_proba, num_actions):

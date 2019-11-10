@@ -1,3 +1,5 @@
+from typing import Dict
+
 import gym
 import torch
 from torch import nn as nn
@@ -41,9 +43,11 @@ class SnakeA2CAgent(ACModel):
     def semi_memory_size(self):
         return self.image_embedding_size
 
-    def forward(self, observation):
+    def calc_dist_value(self,observation:Dict[str,torch.Tensor]):
+        return self.forward(observation.get('image'))
 
-        image = observation.get("image")
+    def forward(self, image):
+
         x = image[:, :, :, 0].view(image.size(0), -1)
         # x = torch.transpose(torch.transpose(obs.image, 1, 3), 2, 3)
         x = self.visual_nn(x)
