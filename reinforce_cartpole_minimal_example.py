@@ -54,6 +54,51 @@ def collect_experience(env: gym.Env, agent: PolicyAgent):
     return ep_reward, exp
 
 
+def calc_returns(exp, gamma):
+    returns = []
+    R = 0
+    for action, log_prob, r in reversed(exp):
+        R = r + gamma * R
+        returns.insert(0, R)
+    returns = torch.tensor(returns)
+    returns = (returns - returns.mean()) / (returns.std() + eps)
+    return returns
+
+
+def calc_loss(exp, gamma):
+    returns = calc_returns(exp, gamma)
+    policy_loss = [-log_prob * R for (_, log_prob, _), R in zip(exp, returns)]
+    policy_loss = torch.cat(policy_loss).sum()
+    return policy_loss
+
+
+def plot_stuff(logs, ep_reward):
+    logs["running_reward"] = 0.05 * ep_reward + (1 - 0.05) * logs["running_reward"]
+    logs["episode_counter"] += 1
+    if logs["episode_counter"] % args.log_interval == 0:
+        print(
+            "Episode {}\tLast reward: {:.2f}\tAverage reward: {:.2f}".format(
+                logs["episode_counter"], ep_reward, logs["running_reward"]
+            )
+        )
+
+
+def train(env: gym.Env, agent: PolicyAgent, args: RLparams):
+
+    logs = {"episode_counter": 0, "running_reward": 0}
+
+    while logs["running_reward"] < env.spec.reward_threshold:
+        ep_reward, exp = collect_experience(env, agent)
+
+        policy_loss = calc_loss(exp, args.gamma)
+
+        optimizer.zero_grad()
+        policy_loss.backward()
+        optimizer.step()
+
+        plot_stuff(logs, ep_reward)
+
+
 if __name__ == "__main__":
     args = RLparams()
     env = gym.make("CartPole-v1")
@@ -64,35 +109,7 @@ if __name__ == "__main__":
     env.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    running_reward = 0
-    episode_counter = 0
-    while running_reward < env.spec.reward_threshold:
-        ep_reward, exp = collect_experience(env, agent)
-
-        R = 0
-        policy_loss = []
-        returns = []
-        for action, log_prob, r in reversed(exp):
-            R = r + args.gamma * R
-            returns.insert(0, R)
-        returns = torch.tensor(returns)
-        returns = (returns - returns.mean()) / (returns.std() + eps)
-        for (_, log_prob, _), R in zip(exp, returns):
-            policy_loss.append(-log_prob * R)
-        optimizer.zero_grad()
-        policy_loss = torch.cat(policy_loss).sum()
-        policy_loss.backward()
-        optimizer.step()
-
-        running_reward = 0.05 * ep_reward + (1 - 0.05) * running_reward
-
-        episode_counter += 1
-        if episode_counter % args.log_interval == 0:
-            print(
-                "Episode {}\tLast reward: {:.2f}\tAverage reward: {:.2f}".format(
-                    episode_counter, ep_reward, running_reward
-                )
-            )
+    train(env, agent, args)
 
     while True:
         state, ep_reward = env.reset(), 0
