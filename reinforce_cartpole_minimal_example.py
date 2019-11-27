@@ -20,14 +20,11 @@ class RLparams(NamedTuple):
     log_interval: int = 10
 
 
-class Policy(nn.Module):
-    def __init__(self):
-        super(Policy, self).__init__()
-        self.affine1 = nn.Linear(4, 24)
-        self.affine2 = nn.Linear(24, 2)
-
-        self.saved_log_probs = []
-        self.rewards = []
+class PolicyAgent(nn.Module):
+    def __init__(self, obs_dim, num_actions) -> None:
+        super().__init__()
+        self.affine1 = nn.Linear(obs_dim, 24)
+        self.affine2 = nn.Linear(24, num_actions)
 
     def forward(self, x):
         x = self.affine1(x)
@@ -35,63 +32,57 @@ class Policy(nn.Module):
         action_scores = self.affine2(x)
         return F.softmax(action_scores, dim=1)
 
-
-def select_action(state):
-    state = torch.from_numpy(state).float().unsqueeze(0)
-    probs = policy(state)
-    m = Categorical(probs)
-    action = m.sample()
-    policy.saved_log_probs.append(m.log_prob(action))
-    return action.item()
+    def step(self, state):
+        state = torch.from_numpy(state).float().unsqueeze(0)
+        probs = self.forward(state)
+        m = Categorical(probs)
+        action = m.sample()
+        return action.item(), m.log_prob(action)
 
 
-def collect_experience(env: gym.Env):
+def collect_experience(env: gym.Env, agent: PolicyAgent):
     state, ep_reward = env.reset(), 0
+    exp = []
     for t in range(1, 10000):  # Don't infinite loop while learning
-        action = select_action(state)
+        action, log_probs = agent.step(state)
         state, reward, done, _ = env.step(action)
-        if args.render:
-            env.render()
-        policy.rewards.append(reward)
+        exp.append((action, log_probs, reward))
         ep_reward += reward
         if done:
             break
 
-    return ep_reward
+    return ep_reward, exp
 
 
 if __name__ == "__main__":
     args = RLparams()
-
-    policy = Policy()
-    optimizer = optim.Adam(policy.parameters(), lr=1e-2)
+    env = gym.make("CartPole-v1")
+    agent: PolicyAgent = PolicyAgent(env.observation_space.shape[0], env.action_space.n)
+    optimizer = optim.Adam(agent.parameters(), lr=1e-2)
     eps = np.finfo(np.float32).eps.item()
 
-    env = gym.make("CartPole-v1")
     env.seed(args.seed)
     torch.manual_seed(args.seed)
 
     running_reward = 0
     episode_counter = 0
     while running_reward < env.spec.reward_threshold:
-        ep_reward = collect_experience(env)
+        ep_reward, exp = collect_experience(env, agent)
 
         R = 0
         policy_loss = []
         returns = []
-        for r in policy.rewards[::-1]:
+        for action, log_prob, r in reversed(exp):
             R = r + args.gamma * R
             returns.insert(0, R)
         returns = torch.tensor(returns)
         returns = (returns - returns.mean()) / (returns.std() + eps)
-        for log_prob, R in zip(policy.saved_log_probs, returns):
+        for (_, log_prob, _), R in zip(exp, returns):
             policy_loss.append(-log_prob * R)
         optimizer.zero_grad()
         policy_loss = torch.cat(policy_loss).sum()
         policy_loss.backward()
         optimizer.step()
-        del policy.rewards[:]
-        del policy.saved_log_probs[:]
 
         running_reward = 0.05 * ep_reward + (1 - 0.05) * running_reward
 
@@ -106,7 +97,7 @@ if __name__ == "__main__":
     while True:
         state, ep_reward = env.reset(), 0
         for t in range(1, 10000):  # Don't infinite loop while learning
-            action = select_action(state)
+            action, _ = agent.step(state)
             state, reward, done, _ = env.step(action)
             if done:
                 break
