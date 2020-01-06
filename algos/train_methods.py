@@ -3,8 +3,8 @@ import time
 import torch
 from typing import Dict, Callable
 
-from dictlist import DictList
-from experience_memory import ExperienceMemory
+from rlutil.dictlist import DictList
+from rlutil.experience_memory import ExperienceMemory
 
 
 def flatten_parallel_rollout(d):

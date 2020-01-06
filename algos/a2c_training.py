@@ -1,18 +1,17 @@
 from typing import NamedTuple
 
 import gym
-import numpy
 import torch
 from tqdm import tqdm
 
-from dictlist import DictList
+from rlutil.dictlist import DictList
 from envs_agents.abstract_agents import ACModel
-from train_methods import (
+from algos.train_methods import (
     gather_exp_via_rollout,
     flatten_array,
     flatten_parallel_rollout,
 )
-from experience_memory import ExperienceMemory
+from rlutil.experience_memory import ExperienceMemory
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

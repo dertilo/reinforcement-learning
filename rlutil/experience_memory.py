@@ -1,6 +1,6 @@
 import torch
 
-from dictlist import DictList
+from rlutil.dictlist import DictList
 
 
 class ExperienceMemory(object):

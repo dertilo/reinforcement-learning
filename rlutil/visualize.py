@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 
-import argparse
 import gym
 import time
 
-from rl_utils import set_seeds, load_model
+from rlutil.rl_utils import set_seeds
 
 try:
     import gym_minigrid
