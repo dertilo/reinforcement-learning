@@ -1,12 +1,12 @@
 import os
-from a2c_training import A2CParams, train_a2c_model
+from algos.a2c_training import A2CParams, train_a2c_model
 from envs_agents.snake.a2c_agent import SnakeA2CAgent
 from envs_agents.snake.snake_env import build_SnakeEnv
-from rl_utils import set_seeds, save_model, load_model
-from visualize import visualize_it
+from rlutil.rl_utils import set_seeds, save_model, load_model
+from rlutil.visualize import visualize_it
 
 def run_a2c_experiments(storage_path):
-    num_batches = 200
+    num_batches = 2000
 
     experiments = [
         ('1p',A2CParams(num_processes=1,num_batches=num_batches)),
