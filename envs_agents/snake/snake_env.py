@@ -10,7 +10,7 @@ from gym import spaces
 from gym_minigrid.minigrid import MiniGridEnv, Goal, Grid, Lava
 
 from envs_agents.parallel_environment import SingleEnvWrapper, ParallelEnv
-from visualize import visualize_it
+from rlutil.visualize import visualize_it
 
 
 def preprocess_images(images, device=None):

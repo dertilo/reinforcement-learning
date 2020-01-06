@@ -1,14 +1,12 @@
-import math
-
 import gym
 import numpy
 import torch
 import torch.nn as nn
 from gym.envs.classic_control import CartPoleEnv
 
-from abstract_agents import QModel
+from envs_agents.abstract_agents import QModel
 from envs_agents.parallel_environment import SingleEnvWrapper, ParallelEnv
-from visualize import visualize_it
+from rlutil.visualize import visualize_it
 
 
 class CartPolePreprocessWrapper(gym.Env):
