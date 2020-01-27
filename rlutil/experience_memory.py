@@ -38,13 +38,15 @@ class ExperienceMemory(object):
         self.inc_idx()
         return self.current_idx
 
-
 def fill_with_zeros(dim, d):
-    return DictList(
-        **{
-            k: torch.zeros(*(dim,) + v.shape, dtype=v.dtype)
-            if not isinstance(v, dict)
-            else fill_with_zeros(dim, v)
-            for k, v in d.items()
-        }
-    )
+    return DictList(**{k: create_zeros(dim, v) for k, v in d.items()})
+
+
+def create_zeros(dim: int, v):
+    if torch.is_tensor(v):
+        z = torch.zeros(*(dim,) + v.shape, dtype=v.dtype)
+    elif isinstance(v, dict):
+        z = fill_with_zeros(dim, v)
+    else:
+        assert False
+    return z

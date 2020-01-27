@@ -10,38 +10,8 @@ from torch.distributions import Categorical
 from tqdm import tqdm
 
 from dqn_cartpole_minimal_example import plot_average_game_length
-
-
-class DictList(dict):
-    # """A dictionnary of lists of same size. Dictionnary items can be
-    # accessed using `.` notation and list items using `[]` notation.
-    #
-    # Example:
-    #     >>> d = DictList({"a": [[1, 2], [3, 4]], "b": [[5], [6]]})
-    #     >>> d.a
-    #     [[1, 2], [3, 4]]
-    #     >>> d[0]
-    #     DictList({"a": [1, 2], "b": [5]})
-    # """
-
-    __getattr__ = dict.__getitem__
-    __setattr__ = dict.__setitem__
-
-    def __len__(self):
-        return len(next(iter(dict.values(self))))
-
-    def __getitem__(self, index):
-        return DictList({key: value[index] for key, value in dict.items(self)})
-
-    def __setitem__(self, index, d):
-        for key, value in d.items():
-            dict.__getitem__(self, key)[index] = value
-
-    @classmethod
-    def build(cls, d: dict):
-        return DictList(
-            **{k: cls.build(v) if isinstance(v, dict) else v for k, v in d.items()}
-        )
+from rlutil.dictlist import DictList
+from rlutil.experience_memory import ExperienceMemory
 
 
 def flatten_parallel_rollout(d):
@@ -53,57 +23,6 @@ def flatten_parallel_rollout(d):
 
 def flatten_array(v):
     return v.transpose(0, 1).reshape(v.shape[0] * v.shape[1], *v.shape[2:])
-
-
-def fill_with_zeros(dim, d):
-    return DictList(**{k: create_zeros(dim, v) for k, v in d.items()})
-
-
-def create_zeros(dim: int, v):
-    if torch.is_tensor(v):
-        z = torch.zeros(*(dim,) + v.shape, dtype=v.dtype)
-    elif isinstance(v, dict):
-        z = fill_with_zeros(dim, v)
-    else:
-        assert False
-    return z
-
-
-class ExperienceMemory(object):
-    def __init__(self, buffer_capacity: int, datum: DictList):
-
-        self.buffer_capacity = buffer_capacity
-        self.current_idx = 0
-        self.last_written_idx = 0
-        self.buffer = fill_with_zeros(buffer_capacity, datum)
-        self.log = {}
-
-        self.store_single(datum)
-
-    def __len__(self):
-        return len(self.buffer)
-
-    def __getitem__(self, index):
-        return self.buffer[index]
-
-    def __setitem__(self, index, d):
-        for key, value in d.items():
-            dict.__getitem__(self, key)[index] = value
-
-    def inc_idx(self):
-        self.last_written_idx = self.current_idx
-        self.current_idx = (self.current_idx + 1) % self.buffer_capacity
-
-    def store_single(self, datum: DictList):
-        self.buffer[self.current_idx] = datum
-        self.inc_idx()
-        return self.current_idx
-
-    def last_becomes_first(self):
-        assert self.current_idx == 0
-        self.buffer[self.current_idx] = self.buffer[-1]
-        self.inc_idx()
-        return self.current_idx
 
 
 class CartPoleDictEnv(CartPoleEnv):
@@ -229,7 +148,7 @@ def train_batch(w: World, p: A2CParams, optimizer):
     return exps.env_steps.done.numpy()
 
 
-def calc_loss(exps: ExperienceMemory, w: World, p: A2CParams):
+def calc_loss(exps: DictList, w: World, p: A2CParams):
     dist, value = w.agent.calc_dist_value(exps.env_steps)
     entropy = dist.entropy().mean()
     policy_loss = -(dist.log_prob(exps.agent_steps.actions) * exps.advantages).mean()
@@ -247,7 +166,7 @@ def gather_exp_via_rollout(
         exp_mem.store_single(DictList.build({"env": env_step, "agent": agent_step}))
 
 
-def collect_experiences_calc_advantage(w: World, params: A2CParams):
+def collect_experiences_calc_advantage(w: World, params: A2CParams) -> DictList:
     assert w.exp_mem.current_idx == 0
     w.exp_mem.last_becomes_first()
 
@@ -294,7 +213,7 @@ def visualize_it(env: gym.Env, agent: CartPoleA2CAgent, max_steps=1000):
 
 
 if __name__ == "__main__":
-    params = A2CParams(lr=0.01,num_rollout_steps=32)
+    params = A2CParams(lr=0.01, num_rollout_steps=32)
     env = CartPoleDictEnv()
     agent: CartPoleA2CAgent = CartPoleA2CAgent(env.observation_space, env.action_space)
     # x = env.reset()
@@ -316,12 +235,10 @@ if __name__ == "__main__":
     optimizer = torch.optim.RMSprop(agent.parameters(), params.lr)
 
     dones = [
-        done for k in tqdm(range(4000)) for done in train_batch(w, params, optimizer)
+        done for k in tqdm(range(2000)) for done in train_batch(w, params, optimizer)
     ]
 
     plot_average_game_length(
-        dones,
-        avg_size=1000,
-        png_file="images/learn_curve_a2c_cartpole.png",
+        dones, avg_size=1000, png_file="images/learn_curve_a2c_cartpole.png",
     )
-    visualize_it(env,agent)
+    visualize_it(env, agent)
