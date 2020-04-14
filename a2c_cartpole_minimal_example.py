@@ -1,3 +1,4 @@
+import abc
 from typing import Dict, Any, NamedTuple
 
 import gym
@@ -25,13 +26,40 @@ def flatten_array(v):
     return v.transpose(0, 1).reshape(v.shape[0] * v.shape[1], *v.shape[2:])
 
 
-class CartPoleDictEnv(CartPoleEnv):
+class EnvStep(NamedTuple):
+    observation: torch.FloatTensor
+    reward: torch.FloatTensor
+    done: torch.LongTensor
+
+
+class AgentStep(NamedTuple):
+    actions: torch.LongTensor
+    v_values: torch.FloatTensor
+
+
+class EnvStepper:
+    @abc.abstractmethod
+    def step(self, agent_step: AgentStep) -> EnvStep:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def reset(self) -> EnvStep:
+        raise NotImplementedError
+
+
+class AgentStepper:
+    @abc.abstractmethod
+    def step(self, env_step: EnvStep) -> AgentStep:
+        raise NotImplementedError
+
+
+class CartPoleDictEnv(CartPoleEnv, EnvStepper):
     def step(self, action: DictList):
         agent_action = int(action.actions.numpy()[0])
         obs, _, done, info = super().step(agent_action)
 
         if done:
-            obs = self.reset()["observation"]
+            obs = self.reset().observation
         reward = -10.0 if done else 1.0
         return self._form_output(obs, reward, done)
 
@@ -40,19 +68,20 @@ class CartPoleDictEnv(CartPoleEnv):
         return self._form_output(obs, 0, False)
 
     def _form_output(self, obs, reward, done):
-        return self._torchify(
+        d = self._torchify(
             {
                 "observation": np.expand_dims(obs, 0).astype("float32"),
-                "reward": np.array([reward],dtype=np.float32),
+                "reward": np.array([reward], dtype=np.float32),
                 "done": np.array([int(done)]),
             }
         )
+        return EnvStep(**d)
 
     def _torchify(self, d):
         return {k: torch.from_numpy(v) for k, v in d.items()}
 
 
-class CartPoleA2CAgent(nn.Module):
+class CartPoleA2CAgent(nn.Module, AgentStepper):
     def __init__(self, obs_space, action_space):
         super().__init__()
         self.num_actions = action_space.n
@@ -85,8 +114,8 @@ class CartPoleA2CAgent(nn.Module):
     def calc_dist_value(self, env_step: DictList):
         return self.forward(env_step.observation)
 
-    def step(self, env_step, argmax=False) -> Dict[str, Any]:
-        obs_batch = env_step["observation"]
+    def step(self, env_step: EnvStep, argmax=False):
+        obs_batch = env_step.observation
         # if len(obs_batch.shape)<2:
         #     obs_batch = np.expand_dims(obs_batch,0)
         dist, values = self.forward(obs_batch)
@@ -97,7 +126,7 @@ class CartPoleA2CAgent(nn.Module):
             actions = dist.sample()
 
         assert not values.requires_grad
-        return {"actions": actions, "v_values": values.data}
+        return AgentStep(actions, values.data)
 
 
 def generalized_advantage_estimation(
@@ -127,7 +156,7 @@ class A2CParams(NamedTuple):
 
 
 class World(NamedTuple):
-    env: CartPoleEnv
+    env: CartPoleDictEnv
     agent: CartPoleA2CAgent
     exp_mem: ExperienceMemory
 
@@ -157,12 +186,14 @@ def calc_loss(exps: DictList, w: World, p: A2CParams):
 
 
 def gather_exp_via_rollout(
-    env_step_fun, agent_step_fun, exp_mem: ExperienceMemory, num_rollout_steps
+    env:EnvStepper, agent:AgentStepper, exp_mem: ExperienceMemory, num_rollout_steps
 ):
     for _ in range(num_rollout_steps):
-        env_step = env_step_fun(exp_mem[exp_mem.last_written_idx].agent)
-        agent_step = agent_step_fun(env_step)
-        exp_mem.store_single(DictList.build({"env": env_step, "agent": agent_step}))
+        env_step = env.step(AgentStep(**exp_mem[exp_mem.last_written_idx].agent))
+        agent_step = agent.step(env_step)
+        exp_mem.store_single(
+            DictList.build({"env": env_step._asdict(), "agent": agent_step._asdict()})
+        )
 
 
 def collect_experiences_calc_advantage(w: World, params: A2CParams) -> DictList:
@@ -170,7 +201,7 @@ def collect_experiences_calc_advantage(w: World, params: A2CParams) -> DictList:
     w.exp_mem.last_becomes_first()
 
     gather_exp_via_rollout(
-        w.env.step, w.agent.step, w.exp_mem, params.num_rollout_steps
+        w.env, w.agent, w.exp_mem, params.num_rollout_steps
     )
     assert w.exp_mem.last_written_idx == params.num_rollout_steps
 
@@ -205,15 +236,15 @@ def visualize_it(env: gym.Env, agent: CartPoleA2CAgent, max_steps=1000):
                     return
 
                 action = agent.step(env_step)
-                env_step = env.step(DictList.build(action))
-                if env_step["done"]:
+                env_step = env.step(DictList.build(action._asdict()))
+                if env_step.done:
                     break
             if steps < max_steps - 1:
                 print("only %d steps" % steps)
 
 
 if __name__ == "__main__":
-    params = A2CParams(lr=0.01, num_rollout_steps=32)
+    params = A2CParams(lr=0.01, num_rollout_steps=5)
     env = CartPoleDictEnv()
     agent: CartPoleA2CAgent = CartPoleA2CAgent(env.observation_space, env.action_space)
     # x = env.reset()
@@ -223,7 +254,9 @@ if __name__ == "__main__":
     with torch.no_grad():
         initial_agent_step = agent.step(initial_env_step)
 
-    initial_exp = DictList.build({"env": initial_env_step, "agent": initial_agent_step})
+    initial_exp = DictList.build(
+        {"env": initial_env_step._asdict(), "agent": initial_agent_step._asdict()}
+    )
 
     exp_mem = ExperienceMemory(params.num_rollout_steps + 1, initial_exp)
 
@@ -231,13 +264,13 @@ if __name__ == "__main__":
     with torch.no_grad():
         w.agent.eval()
         gather_exp_via_rollout(
-            w.env.step, w.agent.step, w.exp_mem, params.num_rollout_steps
+            w.env, w.agent, w.exp_mem, params.num_rollout_steps
         )
 
     optimizer = torch.optim.RMSprop(agent.parameters(), params.lr)
 
     dones = [
-        done for k in tqdm(range(2000)) for done in train_batch(w, params, optimizer)
+        done for k in tqdm(range(900)) for done in train_batch(w, params, optimizer)
     ]
 
     plot_average_game_length(
