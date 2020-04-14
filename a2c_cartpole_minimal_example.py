@@ -53,6 +53,13 @@ class AgentStepper:
         raise NotImplementedError
 
 
+class Experience(NamedTuple):
+    env_steps: EnvStep
+    agent_steps: AgentStep
+    advantages: torch.FloatTensor
+    returnn: torch.FloatTensor
+
+
 class CartPoleDictEnv(CartPoleEnv, EnvStepper):
     def step(self, action: DictList):
         agent_action = int(action.actions.numpy()[0])
@@ -111,8 +118,8 @@ class CartPoleA2CAgent(nn.Module, AgentStepper):
 
         return dist, value
 
-    def calc_dist_value(self, env_step: DictList):
-        return self.forward(env_step.observation)
+    def calc_dist_value(self, observation: torch.FloatTensor):
+        return self.forward(observation)
 
     def step(self, env_step: EnvStep, argmax=False):
         obs_batch = env_step.observation
@@ -176,8 +183,8 @@ def train_batch(w: World, p: A2CParams, optimizer):
     return exps.env_steps.done.numpy()
 
 
-def calc_loss(exps: DictList, w: World, p: A2CParams):
-    dist, value = w.agent.calc_dist_value(exps.env_steps)
+def calc_loss(exps: Experience, w: World, p: A2CParams):
+    dist, value = w.agent.calc_dist_value(exps.env_steps.observation)
     entropy = dist.entropy().mean()
     policy_loss = -(dist.log_prob(exps.agent_steps.actions) * exps.advantages).mean()
     value_loss = (value - exps.returnn).pow(2).mean()
@@ -186,7 +193,7 @@ def calc_loss(exps: DictList, w: World, p: A2CParams):
 
 
 def gather_exp_via_rollout(
-    env:EnvStepper, agent:AgentStepper, exp_mem: ExperienceMemory, num_rollout_steps
+    env: EnvStepper, agent: AgentStepper, exp_mem: ExperienceMemory, num_rollout_steps
 ):
     for _ in range(num_rollout_steps):
         env_step = env.step(AgentStep(**exp_mem[exp_mem.last_written_idx].agent))
@@ -196,13 +203,11 @@ def gather_exp_via_rollout(
         )
 
 
-def collect_experiences_calc_advantage(w: World, params: A2CParams) -> DictList:
+def collect_experiences_calc_advantage(w: World, params: A2CParams) -> Experience:
     assert w.exp_mem.current_idx == 0
     w.exp_mem.last_becomes_first()
 
-    gather_exp_via_rollout(
-        w.env, w.agent, w.exp_mem, params.num_rollout_steps
-    )
+    gather_exp_via_rollout(w.env, w.agent, w.exp_mem, params.num_rollout_steps)
     assert w.exp_mem.last_written_idx == params.num_rollout_steps
 
     env_steps = w.exp_mem.buffer.env
@@ -215,7 +220,7 @@ def collect_experiences_calc_advantage(w: World, params: A2CParams) -> DictList:
         discount=params.discount,
         gae_lambda=params.gae_lambda,
     )
-    return DictList(
+    return Experience(
         **{
             "env_steps": DictList(**flatten_parallel_rollout(env_steps[:-1])),
             "agent_steps": DictList(**flatten_parallel_rollout(agent_steps[:-1])),
@@ -263,9 +268,7 @@ if __name__ == "__main__":
     w = World(env, agent, exp_mem)
     with torch.no_grad():
         w.agent.eval()
-        gather_exp_via_rollout(
-            w.env, w.agent, w.exp_mem, params.num_rollout_steps
-        )
+        gather_exp_via_rollout(w.env, w.agent, w.exp_mem, params.num_rollout_steps)
 
     optimizer = torch.optim.RMSprop(agent.parameters(), params.lr)
 
