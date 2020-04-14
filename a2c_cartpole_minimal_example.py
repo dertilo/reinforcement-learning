@@ -53,7 +53,7 @@ class AgentStepper:
         raise NotImplementedError
 
 
-class Experience(NamedTuple):
+class Rollout(NamedTuple):
     env_steps: EnvStep
     agent_steps: AgentStep
     advantages: torch.FloatTensor
@@ -183,7 +183,7 @@ def train_batch(w: World, p: A2CParams, optimizer):
     return exps.env_steps.done.numpy()
 
 
-def calc_loss(exps: Experience, w: World, p: A2CParams):
+def calc_loss(exps: Rollout, w: World, p: A2CParams):
     dist, value = w.agent.calc_dist_value(exps.env_steps.observation)
     entropy = dist.entropy().mean()
     policy_loss = -(dist.log_prob(exps.agent_steps.actions) * exps.advantages).mean()
@@ -203,7 +203,7 @@ def gather_exp_via_rollout(
         )
 
 
-def collect_experiences_calc_advantage(w: World, params: A2CParams) -> Experience:
+def collect_experiences_calc_advantage(w: World, params: A2CParams) -> Rollout:
     assert w.exp_mem.current_idx == 0
     w.exp_mem.last_becomes_first()
 
@@ -220,7 +220,7 @@ def collect_experiences_calc_advantage(w: World, params: A2CParams) -> Experienc
         discount=params.discount,
         gae_lambda=params.gae_lambda,
     )
-    return Experience(
+    return Rollout(
         **{
             "env_steps": DictList(**flatten_parallel_rollout(env_steps[:-1])),
             "agent_steps": DictList(**flatten_parallel_rollout(agent_steps[:-1])),
