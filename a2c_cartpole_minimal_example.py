@@ -96,7 +96,8 @@ class CartPoleA2CAgent(nn.Module):
         else:
             actions = dist.sample()
 
-        return {"actions": actions, "v_values": values}
+        assert not values.requires_grad
+        return {"actions": actions, "v_values": values.data}
 
 
 def generalized_advantage_estimation(
@@ -194,20 +195,21 @@ def collect_experiences_calc_advantage(w: World, params: A2CParams) -> DictList:
 
 
 def visualize_it(env: gym.Env, agent: CartPoleA2CAgent, max_steps=1000):
+    agent.eval()
+    with torch.no_grad():
+        while True:
+            env_step = env.reset()
+            for steps in range(max_steps):
+                is_open = env.render()
+                if not is_open:
+                    return
 
-    while True:
-        env_step = env.reset()
-        for steps in range(max_steps):
-            is_open = env.render()
-            if not is_open:
-                return
-
-            action = agent.step(env_step)
-            env_step = env.step(DictList.build(action))
-            if env_step["done"]:
-                break
-        if steps < max_steps - 1:
-            print("only %d steps" % steps)
+                action = agent.step(env_step)
+                env_step = env.step(DictList.build(action))
+                if env_step["done"]:
+                    break
+            if steps < max_steps - 1:
+                print("only %d steps" % steps)
 
 
 if __name__ == "__main__":
@@ -226,9 +228,11 @@ if __name__ == "__main__":
     exp_mem = ExperienceMemory(params.num_rollout_steps + 1, initial_exp)
 
     w = World(env, agent, exp_mem)
-    gather_exp_via_rollout(
-        w.env.step, w.agent.step, w.exp_mem, params.num_rollout_steps
-    )
+    with torch.no_grad():
+        w.agent.eval()
+        gather_exp_via_rollout(
+            w.env.step, w.agent.step, w.exp_mem, params.num_rollout_steps
+        )
 
     optimizer = torch.optim.RMSprop(agent.parameters(), params.lr)
 
