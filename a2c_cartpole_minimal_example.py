@@ -43,7 +43,7 @@ class CartPoleDictEnv(CartPoleEnv):
         return self._torchify(
             {
                 "observation": np.expand_dims(obs, 0).astype("float32"),
-                "reward": np.array([reward]),
+                "reward": np.array([reward],dtype=np.float32),
                 "done": np.array([int(done)]),
             }
         )
