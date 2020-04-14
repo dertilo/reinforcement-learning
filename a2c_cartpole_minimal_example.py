@@ -96,9 +96,7 @@ class CartPoleA2CAgent(nn.Module):
         else:
             actions = dist.sample()
 
-        logprob = dist.log_prob(actions)
-
-        return {"actions": actions, "v_values": values, "logprobs": logprob}
+        return {"actions": actions, "v_values": values}
 
 
 def generalized_advantage_estimation(
