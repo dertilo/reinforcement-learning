@@ -171,23 +171,23 @@ class World(NamedTuple):
 def train_batch(w: World, p: A2CParams, optimizer):
     with torch.no_grad():
         w.agent.eval()
-        exps = collect_experiences_calc_advantage(w, p)
+        rollout = collect_experiences_calc_advantage(w, p)
 
     w.agent.train()
-    loss = calc_loss(exps, w, p)
+    loss = calc_loss(rollout, w, p)
 
     optimizer.zero_grad()
     loss.backward()
     torch.nn.utils.clip_grad_norm_(w.agent.parameters(), p.max_grad_norm)
     optimizer.step()
-    return exps.env_steps.done.numpy()
+    return rollout.env_steps.done.numpy()
 
 
-def calc_loss(exps: Rollout, w: World, p: A2CParams):
-    dist, value = w.agent.calc_dist_value(exps.env_steps.observation)
+def calc_loss(roll: Rollout, w: World, p: A2CParams):
+    dist, value = w.agent.calc_dist_value(roll.env_steps.observation)
     entropy = dist.entropy().mean()
-    policy_loss = -(dist.log_prob(exps.agent_steps.actions) * exps.advantages).mean()
-    value_loss = (value - exps.returnn).pow(2).mean()
+    policy_loss = -(dist.log_prob(roll.agent_steps.actions) * roll.advantages).mean()
+    value_loss = (value - roll.returnn).pow(2).mean()
     loss = policy_loss - p.entropy_coef * entropy + p.value_loss_coef * value_loss
     return loss
 
