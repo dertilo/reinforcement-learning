@@ -3,3 +3,4 @@ util@git+https://git@github.com/dertilo/util.git#egg=util
 matplotlib
 scipy
 torch
+tqdm
