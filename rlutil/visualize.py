@@ -26,7 +26,7 @@ def visualize_it(env: gym.Env, agent, pause_dur=0.001, seed=0, num_steps=1000):
         action = agent.step(obs)
         obs = env.step(action)
 
-        if not is_open:
+        if (isinstance(is_open,bool) and not is_open):
             break
         if c > num_steps:
             break
