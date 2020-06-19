@@ -4,3 +4,4 @@ matplotlib
 scipy
 torch
 tqdm
+# apt-get install ffmpeg

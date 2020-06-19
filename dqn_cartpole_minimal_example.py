@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from gym.envs.classic_control import CartPoleEnv
+from gym.wrappers import Monitor
 from torch.optim.rmsprop import RMSprop
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -176,9 +177,11 @@ if __name__ == "__main__":
     env = CartPoleEnv()
     agent = CartPoleAgent(env.observation_space, env.action_space)
     batch_size = 32
-    dones_g = train_agent(agent, env, num_batches=1000, batch_size=batch_size)
+    dones_g = train_agent(agent, env, num_batches=400, batch_size=batch_size)
     dones = [done for done_array in dones_g for done in done_array]
 
     plot_average_game_length(dones, avg_size=1000)
+    env = Monitor(env, "./vid", video_callable=lambda episode_id: True,
+                               force=True)
     visualize_it(env, agent)
 

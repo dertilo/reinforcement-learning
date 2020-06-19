@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from gym.envs.classic_control import CartPoleEnv
+from gym.wrappers import Monitor
 from torch.distributions import Categorical
 from tqdm import tqdm
 
@@ -30,7 +31,7 @@ class EnvStep(NamedTuple):
     observation: torch.FloatTensor
     reward: torch.FloatTensor
     done: torch.LongTensor
-
+    info:torch.LongTensor
 
 class AgentStep(NamedTuple):
     actions: torch.LongTensor
@@ -80,6 +81,7 @@ class CartPoleDictEnv(CartPoleEnv, EnvStepper):
                 "observation": np.expand_dims(obs, 0).astype("float32"),
                 "reward": np.array([reward], dtype=np.float32),
                 "done": np.array([int(done)]),
+                "info": np.array([int(done)]),
             }
         )
         return EnvStep(**d)
@@ -242,6 +244,8 @@ def visualize_it(env: gym.Env, agent: CartPoleA2CAgent, max_steps=1000):
 
                 action = agent.step(env_step)
                 env_step = env.step(DictList.build(action._asdict()))
+                if not isinstance(env_step,EnvStep):
+                    env_step = EnvStep(*env_step)
                 if env_step.done:
                     break
             if steps < max_steps - 1:
@@ -272,11 +276,16 @@ if __name__ == "__main__":
 
     optimizer = torch.optim.RMSprop(agent.parameters(), params.lr)
 
+    num_epochs = 2000
     dones = [
-        done for k in tqdm(range(900)) for done in train_batch(w, params, optimizer)
+        done
+        for k in tqdm(range(num_epochs))
+        for done in train_batch(w, params, optimizer)
     ]
 
     plot_average_game_length(
         dones, avg_size=1000, png_file="images/learn_curve_a2c_cartpole.png",
     )
+    env = Monitor(env, "./vid", video_callable=lambda episode_id: True, force=True)
+
     visualize_it(env, agent)

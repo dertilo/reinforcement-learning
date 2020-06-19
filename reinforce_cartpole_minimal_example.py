@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from gym.wrappers import Monitor
 from torch.distributions import Categorical
 
 """
@@ -110,6 +111,8 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
 
     train(env, agent, args)
+
+    env = Monitor(env, "./vid", video_callable=lambda episode_id: True, force=True)
 
     while True:
         state, ep_reward = env.reset(), 0
