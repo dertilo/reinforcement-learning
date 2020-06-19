@@ -1,24 +1,13 @@
 # based on: examples/pybullet/gym/pybullet_envs/baselines/train_kuka_grasping.py
-#add parent dir to find package. Only needed for source code build, pip install doesn't need it.
-import os, inspect
-currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
-parentdir = os.path.dirname(os.path.dirname(currentdir))
-os.sys.path.insert(0, parentdir)
-
-import gym
+from baselines.common.models import mlp
 from pybullet_envs.bullet.kukaGymEnv import KukaGymEnv
-
 from baselines import deepq
-
-import datetime
 
 
 def callback(lcl, glb):
   # stop training if reward exceeds 199
   total = sum(lcl['episode_rewards'][-101:-1]) / 100
   totalt = lcl['t']
-  #print("totalt")
-  #print(totalt)
   is_solved = totalt > 2000 and total >= 10
   return is_solved
 
@@ -26,9 +15,9 @@ def callback(lcl, glb):
 def main():
 
   env = KukaGymEnv(renders=False, isDiscrete=True)
-  model = deepq.models.mlp([64])
+  model = mlp()
   act = deepq.learn(env,
-                    q_func=model,
+                    network=model,
                     lr=1e-3,
                     max_timesteps=10000000,
                     buffer_size=50000,
