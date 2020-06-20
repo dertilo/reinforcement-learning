@@ -9,7 +9,6 @@ from gym.wrappers import Monitor
 from torch.optim.rmsprop import RMSprop
 import torch.nn.functional as F
 from tqdm import tqdm
-from util.util_methods import iterable_to_batches
 
 
 def mix_in_some_random_actions(policy_actions, eps, num_actions):
@@ -152,36 +151,24 @@ def train_agent(agent: CartPoleAgent, env: gym.Env, num_batches=3_000, batch_siz
         optimizer.zero_grad()
         loss_value.backward()
         optimizer.step()
-        yield exp.next_done
-
-
-def plot_average_game_length(
-    dones,
-    avg_size,
-    png_file="images/learn_curve_dqn_cartpole.png",
-):
-    batches = list(iterable_to_batches(dones, avg_size))
-    avg_game_length = [avg_size / (1 + sum(b)) for b in batches]
-    from matplotlib import pyplot as plt
-
-    x = [k * avg_size for k in range(len(avg_game_length))]
-    plt.plot(x, avg_game_length)
-    plt.xscale("linear")
-    plt.yscale("log")
-    plt.ylabel("game-length (averaged over %d steps)" % avg_size)
-    plt.xlabel("game-step")
-    plt.savefig(png_file)
 
 
 if __name__ == "__main__":
     env = CartPoleEnv()
     agent = CartPoleAgent(env.observation_space, env.action_space)
     batch_size = 32
-    dones_g = train_agent(agent, env, num_batches=400, batch_size=batch_size)
-    dones = [done for done_array in dones_g for done in done_array]
 
-    plot_average_game_length(dones, avg_size=1000)
-    env = Monitor(env, "./vid", video_callable=lambda episode_id: True,
-                               force=True)
+    from baselines.bench import Monitor as BenchMonitor
+
+    env = BenchMonitor(env, "./logs")
+    train_agent(agent, env, num_batches=1000, batch_size=batch_size)
+
+    from baselines.common import plot_util as pu
+    from matplotlib import pyplot as plt
+
+    results = pu.load_results("logs")
+    f, ax = pu.plot_results(results)
+    f.savefig("logs/dqn_cartpole.png")
+
+    env = Monitor(env, "./vid", video_callable=lambda episode_id: True, force=True)
     visualize_it(env, agent)
-
