@@ -1,5 +1,6 @@
 from typing import NamedTuple
 
+from baselines.bench import Monitor as BenchMonitor
 import gym
 import numpy as np
 import torch
@@ -110,6 +111,7 @@ if __name__ == "__main__":
     env.seed(args.seed)
     torch.manual_seed(args.seed)
 
+    env = BenchMonitor(env, "./logs")
     train(env, agent, args)
 
     env = Monitor(env, "./vid", video_callable=lambda episode_id: True, force=True)
