@@ -1,12 +1,12 @@
 # based on: examples/pybullet/gym/pybullet_envs/baselines/train_kuka_grasping.py
+import os
+
 from typing import NamedTuple
 
 import gym
 import pybullet_data
 import torch
-from baselines.common.models import mlp
 from pybullet_envs.bullet.kukaGymEnv import KukaGymEnv
-from baselines import deepq
 import pybullet as pb
 import numpy as np
 import torch
@@ -47,10 +47,12 @@ class KukaRobotEnv(KukaGymEnv):
             self.blockUid, self._kuka.kukaUid, 1000, -1, self._kuka.kukaEndEffectorIndex
         )
         distance = closestPoints[0][8]
-
-        reward = 1
+        reward = 0.0
+        if distance < 0.2:
+            reward = 1.0 / distance
         if self._table_collision():
-            reward = -1.0
+            reward = -10.0
+
         # if distance < self.distance:
         #     reward = -1.0
         # else:
@@ -58,10 +60,10 @@ class KukaRobotEnv(KukaGymEnv):
         # self.distance = distance
         return reward
 
-    def step(self, action):
+    def step(self, action: int):
         dv = 0.005
-        realAction = [0] * 10
-        realAction[action % 5] = dv if action <= 5 else -dv
+        realAction = [0.0] * 10
+        realAction[action % 5] = dv if action < 5 else -dv
         return self.step2(realAction)
 
     def _table_collision(self):
@@ -153,7 +155,7 @@ def train(env: KukaRobotEnv, agent: PolicyAgent, args: RLparams):
 if __name__ == "__main__":
 
     args = RLparams()
-    env = KukaRobotEnv(renders=True, maxSteps=1000, isDiscrete=True)
+    env = KukaRobotEnv(renders=False, maxSteps=1000, isDiscrete=True)
     agent: PolicyAgent = PolicyAgent(env.observation_space.shape[0], env.action_space.n)
     optimizer = optim.Adam(agent.parameters(), lr=1e-2)
     eps = np.finfo(np.float32).eps.item()
@@ -162,13 +164,4 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
 
     train(env, agent, args)
-    del env
-
-    env = KukaRobotEnv(renders=True, maxSteps=1000, isDiscrete=True)
-    while True:
-        state, ep_reward = env.reset(), 0
-        for t in range(1, 10000):  # Don't infinite loop while learning
-            action, _ = agent.step(state)
-            state, reward, done, _ = env.step(action)
-            if done:
-                break
+    torch.save(agent, os.environ["HOME"] + "/data/kuka_models/model.pt")
