@@ -12,6 +12,7 @@ from algos.train_methods import (
     flatten_parallel_rollout,
 )
 from rlutil.experience_memory import ExperienceMemory
+from rlutil.rl_utils import update_progess_bar
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -34,14 +35,6 @@ def generalized_advantage_estimation(rewards, values, dones, p: RLParams):
         )
         next_advantage = advantage_buffer[i]
     return advantage_buffer
-
-
-def update_progess_bar(pbar, params: dict, f=0.95):
-    for param_name, value in params.items():
-        if "running" in param_name:
-            value = f * pbar.postfix[0][param_name] + (1 - f) * value
-        pbar.postfix[0][param_name] = round(value, 5)
-    pbar.update()
 
 
 class A2CParams(NamedTuple):

@@ -17,7 +17,7 @@ from torch.distributions import Categorical
 from tqdm import tqdm
 from gym import spaces
 
-from algos.a2c_training import update_progess_bar
+from rlutil.rl_utils import update_progess_bar
 
 eps = np.finfo(np.float32).eps.item()
 
@@ -76,6 +76,7 @@ class KukaRobotEnv(KukaGymEnv):
 
 
 class RLparams(NamedTuple):
+    num_games: int = 20
     gamma: float = 0.99
     seed: int = 543
     render: bool = False
@@ -138,10 +139,8 @@ def calc_loss(exp, gamma):
 
 def train(env: KukaRobotEnv, agent: PolicyAgent, args: RLparams):
 
-    num_games = 100
-
-    with tqdm(postfix=[{"reward": 0.0, "game-len": 0.0}]) as pbar:
-        for k in range(num_games):
+    with tqdm(postfix=[{"running-reward": 0.0, "running-game-len": 0.0}]) as pbar:
+        for k in range(args.num_games):
             ep_reward, exp = collect_experience(env, agent)
 
             policy_loss = calc_loss(exp, args.gamma)
@@ -149,19 +148,25 @@ def train(env: KukaRobotEnv, agent: PolicyAgent, args: RLparams):
             optimizer.zero_grad()
             policy_loss.backward()
             optimizer.step()
-            update_progess_bar(pbar, {"reward": ep_reward, "game-len": len(exp)})
+            update_progess_bar(
+                pbar, {"running-reward": ep_reward, "running-game-len": len(exp)}
+            )
 
 
 if __name__ == "__main__":
 
-    args = RLparams()
+    args = RLparams(num_games=100)
     env = KukaRobotEnv(renders=False, maxSteps=1000, isDiscrete=True)
-    agent: PolicyAgent = PolicyAgent(env.observation_space.shape[0], env.action_space.n)
+    agent = PolicyAgent(env.observation_space.shape[0], env.action_space.n)
     optimizer = optim.Adam(agent.parameters(), lr=1e-2)
-    eps = np.finfo(np.float32).eps.item()
 
     env.seed(args.seed)
     torch.manual_seed(args.seed)
 
     train(env, agent, args)
-    torch.save(agent, os.environ["HOME"] + "/data/kuka_models/model.pt")
+
+    file_Name = "model.pt"
+    save_dir = os.environ["HOME"] + "/data/kuka_models/"
+    os.makedirs(save_dir, exist_ok=True)
+    save_file = save_dir + file_Name
+    torch.save(agent, save_file)

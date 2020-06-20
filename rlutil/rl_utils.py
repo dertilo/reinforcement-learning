@@ -54,7 +54,7 @@ def load_model(model_dir):
     return model
 
 
-def save_model(model, model_dir):
+def save_model(model, model_dir:str):
     path = get_model_path(model_dir)
     create_folders_if_necessary(path)
     torch.save(model, path)
@@ -93,3 +93,11 @@ def get_csv_writer(model_dir):
     create_folders_if_necessary(csv_path)
     csv_file = open(csv_path, "a")
     return csv_file, csv.writer(csv_file)
+
+
+def update_progess_bar(pbar, params: dict, f=0.95):
+    for param_name, value in params.items():
+        if "running" in param_name:
+            value = f * pbar.postfix[0][param_name] + (1 - f) * value
+        pbar.postfix[0][param_name] = round(value, 5)
+    pbar.update()
