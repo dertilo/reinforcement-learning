@@ -46,7 +46,7 @@ class CartPoleAgent(nn.Module):
         actions = mix_in_some_random_actions(policy_actions, eps, self.num_actions)
         return actions
 
-    def step_single(self, obs, eps=0.001):
+    def step(self, obs, eps=0.001):
         obs_batch = np.expand_dims(obs, 0)
         actions = self.step_batch(obs_batch, eps)
         return int(actions.numpy()[0])
@@ -61,7 +61,7 @@ def visualize_it(env: gym.Env, agent: CartPoleAgent, max_steps=1000):
             if not is_open:
                 return
 
-            action = agent.step_single(obs)
+            action = agent.step(obs)
             obs, reward, done, info = env.step(action)
             if done:
                 break
@@ -90,7 +90,7 @@ def experience_generator(agent, env: gym.Env) -> Generator[Experience, None, Non
     while True:
         obs = env.reset()
         for it in range(1000):
-            action = agent.step_single(obs)
+            action = agent.step(obs)
             next_obs, _, next_done, info = env.step(action)
 
             yield Experience(
@@ -153,16 +153,18 @@ def train_agent(agent: CartPoleAgent, env: gym.Env, num_batches=3_000, batch_siz
         optimizer.step()
 
 
-if __name__ == "__main__":
+def run_cartpole_dqn(num_batches=1000, batch_size=32, log_dir="./logs/cartpole_dqn"):
     env = CartPoleEnv()
     agent = CartPoleAgent(env.observation_space, env.action_space)
-    batch_size = 32
-
     from baselines.bench import Monitor as BenchMonitor
 
-    env = BenchMonitor(env, "./logs")
-    train_agent(agent, env, num_batches=1000, batch_size=batch_size)
+    env = BenchMonitor(env, log_dir, allow_early_resets=True)
+    train_agent(agent, env, num_batches=num_batches, batch_size=batch_size)
+    return agent, env
 
+
+if __name__ == "__main__":
+    agent, env = run_cartpole_dqn()
     from baselines.common import plot_util as pu
     from matplotlib import pyplot as plt
 
