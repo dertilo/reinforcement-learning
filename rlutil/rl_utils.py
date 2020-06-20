@@ -94,8 +94,10 @@ def get_csv_writer(model_dir):
     csv_file = open(csv_path, "a")
     return csv_file, csv.writer(csv_file)
 
+import numpy as np
 
-def update_progess_bar(pbar, params: dict, f=0.95):
+def update_progess_bar(pbar, params: dict, k=100,r=0.05):
+    f = np.exp(np.log(r)/k)
     for param_name, value in params.items():
         if "running" in param_name:
             value = f * pbar.postfix[0][param_name] + (1 - f) * value
