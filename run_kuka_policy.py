@@ -7,6 +7,7 @@ from baselines.common.tf_util import load_variables
 from baselines.deepq import load_act
 from pybullet_envs.bullet import KukaGymEnv
 from tensorflow.python.saved_model.load import load
+from tqdm import tqdm
 
 from kuka_robot import KukaRobotEnv, PolicyAgent
 
@@ -21,7 +22,7 @@ def enjoy_kuka(model_file):
     env = Monitor(env, "./vid", video_callable=lambda episode_id: True, force=True)
     while True:
         state, ep_reward = env.reset(), 0
-        for t in range(1, 10000):  # Don't infinite loop while learning
+        for t in tqdm(range(1, 10000)):  # Don't infinite loop while learning
             action, _ = agent.step(state)
             state, reward, done, _ = env.step(action)
             if done:

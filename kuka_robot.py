@@ -47,21 +47,18 @@ class KukaRobotEnv(KukaGymEnv):
             self.blockUid, self._kuka.kukaUid, 1000, -1, self._kuka.kukaEndEffectorIndex
         )
         distance = closestPoints[0][8]
-        reward = 0.0
+        reward = self.distance - distance
         if distance < 0.2:
-            reward = 1.0 / distance
+            reward = 10.0
+
         if self._table_collision():
             reward = -10.0
 
-        # if distance < self.distance:
-        #     reward = -1.0
-        # else:
-        #     reward = 1.0
-        # self.distance = distance
+        self.distance = distance
         return reward
 
     def step(self, action: int):
-        dv = 0.005
+        dv = 0.01
         realAction = [0.0] * 10
         realAction[action % 5] = dv if action < 5 else -dv
         return self.step2(realAction)
@@ -139,7 +136,9 @@ def calc_loss(exp, gamma):
 
 def train(env: KukaRobotEnv, agent: PolicyAgent, args: RLparams):
 
-    with tqdm(postfix=[{"running-reward": 0.0, "running-game-len": 0.0}]) as pbar:
+    with tqdm(
+        postfix=[{"running-reward": 0.0, "running-game-len": 0.0, "running-dist": 1.0}]
+    ) as pbar:
         for k in range(args.num_games):
             ep_reward, exp = collect_experience(env, agent)
 
@@ -149,13 +148,19 @@ def train(env: KukaRobotEnv, agent: PolicyAgent, args: RLparams):
             policy_loss.backward()
             optimizer.step()
             update_progess_bar(
-                pbar, {"running-reward": ep_reward, "running-game-len": len(exp)}
+                pbar,
+                {
+                    "running-reward": ep_reward,
+                    "running-game-len": len(exp),
+                    "running-dist": env.distance,
+                },
+                k=20,
             )
 
 
 if __name__ == "__main__":
 
-    args = RLparams(num_games=100)
+    args = RLparams(num_games=200)
     env = KukaRobotEnv(renders=False, maxSteps=1000, isDiscrete=True)
     agent = PolicyAgent(env.observation_space.shape[0], env.action_space.n)
     optimizer = optim.Adam(agent.parameters(), lr=1e-2)
