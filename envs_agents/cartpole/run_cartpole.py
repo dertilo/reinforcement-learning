@@ -2,8 +2,10 @@ from baselines.common import plot_util as pu
 from baselines.common.plot_util import smooth
 from matplotlib import pyplot as plt
 
-from envs_agents.cartpole.a2c_cartpole_minimal_example import run_cartpole_a2c, \
-    A2CParams
+from envs_agents.cartpole.a2c_cartpole_minimal_example import (
+    run_cartpole_a2c,
+    A2CParams,
+)
 from envs_agents.cartpole.dqn_cartpole_minimal_example import run_cartpole_dqn
 from envs_agents.cartpole.reinforce_cartpole_minimal_example import (
     RLparams,
@@ -45,7 +47,13 @@ if __name__ == "__main__":
     #     for k in range(3)
     # ]
 
-    [run_cartpole_a2c(A2CParams(lr=0.01, num_rollout_steps=32,seed=k)) for k in range(3)]
+    [
+        run_cartpole_a2c(
+            A2CParams(lr=0.01, num_rollout_steps=32, num_batches=1000, seed=k),
+            log_dir="logs/a2c-%d" % k,
+        )
+        for k in range(3)
+    ]
 
     results = pu.load_results("logs")
     plot_save_results(lr_fn, "logs/steps_rewards.png")

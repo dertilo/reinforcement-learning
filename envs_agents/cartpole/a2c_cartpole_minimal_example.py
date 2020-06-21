@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from gym import Wrapper
 from gym.envs.classic_control import CartPoleEnv
 from gym.wrappers import Monitor
 from torch.distributions import Categorical
@@ -61,7 +62,7 @@ class Rollout(NamedTuple):
     returnn: torch.FloatTensor
 
 
-class CartPoleDictEnv(CartPoleEnv, EnvStepper):
+class CartPoleEnvSelfReset(Wrapper, EnvStepper):
     def step(self, action: DictList):
         agent_action = int(action.actions.numpy()[0])
         obs, _, done, info = super().step(agent_action)
@@ -163,10 +164,11 @@ class A2CParams(NamedTuple):
     lr: float = 1e-2
     gae_lambda: float = 0.95
     seed:int=0
+    num_batches:int=2000
 
 
 class World(NamedTuple):
-    env: CartPoleDictEnv
+    env: CartPoleEnvSelfReset
     agent: CartPoleA2CAgent
     exp_mem: ExperienceMemory
 
@@ -252,15 +254,16 @@ def visualize_it(env: gym.Env, agent: CartPoleA2CAgent, max_steps=1000):
             if steps < max_steps - 1:
                 print("only %d steps" % steps)
 
+from baselines.bench import Monitor as BenchMonitor
 
 def run_cartpole_a2c(params:A2CParams,log_dir="./logs/a2c"):
     os.makedirs(log_dir, exist_ok=True)
-    env = CartPoleDictEnv()
+    env = CartPoleEnv()
+    env = BenchMonitor(env, log_dir, allow_early_resets=True)
+    env = CartPoleEnvSelfReset(env)
     env.seed(params.seed)
     torch.manual_seed(params.seed)
     agent: CartPoleA2CAgent = CartPoleA2CAgent(env.observation_space, env.action_space)
-    # x = env.reset()
-    # agent.step(x)
     initial_env_step = env.reset()
     with torch.no_grad():
         initial_agent_step = agent.step(initial_env_step)
@@ -269,17 +272,13 @@ def run_cartpole_a2c(params:A2CParams,log_dir="./logs/a2c"):
     )
     exp_mem = ExperienceMemory(params.num_rollout_steps + 1, initial_exp)
 
-    from baselines.bench import Monitor as BenchMonitor
-    env = BenchMonitor(env, log_dir, allow_early_resets=True)
-
     w = World(env, agent, exp_mem)
     with torch.no_grad():
         w.agent.eval()
         gather_exp_via_rollout(w.env, w.agent, w.exp_mem, params.num_rollout_steps)
-    optimizer = torch.optim.RMSprop(agent.parameters(), params.lr)
-    num_epochs = 2000
+    optimizer = torch.optim.Adam(agent.parameters(), params.lr)
 
-    for k in tqdm(range(num_epochs)):
+    for k in tqdm(range(params.num_batches)):
         train_batch(w, params, optimizer)
 
     return agent, env
