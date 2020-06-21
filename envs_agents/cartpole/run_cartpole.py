@@ -1,21 +1,34 @@
-import os
-
-from gym.envs.classic_control import CartPoleEnv
-
-from envs_agents.cartpole.dqn_cartpole_minimal_example import (
-    CartPoleAgent,
-    train_agent,
-    run_cartpole_dqn,
-)
-
 from baselines.common import plot_util as pu
+from baselines.common.plot_util import smooth
 from matplotlib import pyplot as plt
 
-if __name__ == "__main__":
-    dqn_dir = "logs/dqn"
-    os.makedirs(dqn_dir, exist_ok=True)
-    agent, _ = run_cartpole_dqn(log_dir=dqn_dir)
+from envs_agents.cartpole.dqn_cartpole_minimal_example import run_cartpole_dqn
+from envs_agents.cartpole.reinforce_cartpole_minimal_example import (
+    RLparams,
+    run_cartpole_reinforce,
+)
+import numpy as np
 
-    results = pu.load_results(dqn_dir)
-    f, ax = pu.plot_results(results)
-    f.savefig("logs/logs.png")
+def lr_fn(r):
+    x = np.cumsum(r.monitor.l)
+    y = smooth(r.monitor.r, radius=10)
+    return x, y
+
+
+def tr_fn(r):
+    x = r.monitor.t
+    y = smooth(r.monitor.r, radius=10)
+    return x, y
+
+
+if __name__ == "__main__":
+    run_cartpole_dqn()
+
+    args = RLparams(num_games=500)
+    run_cartpole_reinforce(args)
+
+    results = pu.load_results("logs")
+    f, ax = pu.plot_results(results, xy_fn=lr_fn, split_fn=lambda _: "")
+    f.savefig("logs/steps_rewards.png")
+    f, ax = pu.plot_results(results, xy_fn=tr_fn, split_fn=lambda _: "")
+    f.savefig("logs/time_rewards.png")

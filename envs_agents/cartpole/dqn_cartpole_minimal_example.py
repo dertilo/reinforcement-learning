@@ -1,3 +1,4 @@
+import os
 import time
 from typing import Iterator, Dict, NamedTuple, Generator
 import gym
@@ -153,7 +154,8 @@ def train_agent(agent: CartPoleAgent, env: gym.Env, num_batches=3_000, batch_siz
         optimizer.step()
 
 
-def run_cartpole_dqn(num_batches=1000, batch_size=32, log_dir="./logs/cartpole_dqn"):
+def run_cartpole_dqn(num_batches=1000, batch_size=32, log_dir="./logs/dqn"):
+    os.makedirs(log_dir, exist_ok=True)
     env = CartPoleEnv()
     agent = CartPoleAgent(env.observation_space, env.action_space)
     from baselines.bench import Monitor as BenchMonitor
