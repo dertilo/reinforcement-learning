@@ -11,7 +11,7 @@ from torch.distributions import Categorical
 from tqdm import tqdm
 
 from envs_agents.cartpole.common import train_batch, gather_exp_via_rollout, \
-    build_experience_memory, World, CartPoleEnvSelfReset, EnvStep, Rollout
+    build_experience_memory, World, CartPoleEnvSelfReset, EnvStep
 from rlutil.dictlist import DictList
 
 
@@ -24,7 +24,6 @@ def flatten_parallel_rollout(d):
 
 def flatten_array(v):
     return v.transpose(0, 1).reshape(v.shape[0] * v.shape[1], *v.shape[2:])
-
 
 class A2CParams(NamedTuple):
     entropy_coef: float = 0.01
@@ -41,6 +40,12 @@ class A2CParams(NamedTuple):
 class AgentStep(NamedTuple):
     actions: torch.LongTensor
     v_values: torch.FloatTensor
+
+class Rollout(NamedTuple):
+    env_steps: EnvStep
+    agent_steps: AgentStep
+    advantages: torch.FloatTensor
+    returnn: torch.FloatTensor
 
 
 class CartPoleA2CAgent(nn.Module):

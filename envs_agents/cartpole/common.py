@@ -4,7 +4,6 @@ import numpy as np
 import torch
 from gym import Wrapper
 
-from envs_agents.cartpole.a2c_cartpole_minimal_example import AgentStep
 from rlutil.dictlist import DictList
 from rlutil.experience_memory import ExperienceMemory
 
@@ -25,7 +24,7 @@ def gather_exp_via_rollout(
     env, agent, exp_mem: ExperienceMemory, num_rollout_steps
 ):
     for _ in range(num_rollout_steps):
-        env_step:NamedTuple = env.step(AgentStep(**exp_mem[exp_mem.last_written_idx].agent))
+        env_step:NamedTuple = env.step(exp_mem[exp_mem.last_written_idx].agent)
         agent_step:NamedTuple = agent.step(env_step)
         exp_mem.store_single(
             DictList.build({"env": env_step._asdict(), "agent": agent_step._asdict()})
@@ -83,9 +82,3 @@ class World(NamedTuple):
     agent: Any # TODO(tilo)
     exp_mem: ExperienceMemory
 
-
-class Rollout(NamedTuple):
-    env_steps: EnvStep
-    agent_steps: AgentStep
-    advantages: torch.FloatTensor
-    returnn: torch.FloatTensor
