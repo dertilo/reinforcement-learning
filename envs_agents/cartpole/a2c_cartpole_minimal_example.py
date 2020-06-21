@@ -1,6 +1,5 @@
-import abc
 import os
-from typing import Dict, Any, NamedTuple
+from typing import NamedTuple
 
 import gym
 import numpy as np
@@ -13,6 +12,7 @@ from gym.wrappers import Monitor
 from torch.distributions import Categorical
 from tqdm import tqdm
 
+from envs_agents.cartpole.common import train_batch
 from rlutil.dictlist import DictList
 from rlutil.experience_memory import ExperienceMemory
 
@@ -173,18 +173,6 @@ class World(NamedTuple):
     exp_mem: ExperienceMemory
 
 
-def train_batch(agent, p: A2CParams, batch, optimizer):
-
-    agent.train()
-    loss = agent.loss(batch)
-
-    optimizer.zero_grad()
-    loss.backward()
-    torch.nn.utils.clip_grad_norm_(agent.parameters(), p.max_grad_norm)
-    optimizer.step()
-    return batch.env_steps.done.numpy()
-
-
 def gather_exp_via_rollout(
     env, agent, exp_mem: ExperienceMemory, num_rollout_steps
 ):
@@ -251,8 +239,8 @@ def run_cartpole_a2c(params: A2CParams, log_dir="./logs/a2c"):
     env = CartPoleEnv()
     env = BenchMonitor(env, log_dir, allow_early_resets=True)
     env = CartPoleEnvSelfReset(env)
-    env.seed(params.seed)
-    torch.manual_seed(params.seed)
+    # env.seed(params.seed)
+    # torch.manual_seed(params.seed)
     agent: CartPoleA2CAgent = CartPoleA2CAgent(
         env.observation_space, env.action_space, params
     )
@@ -281,7 +269,8 @@ def run_cartpole_a2c(params: A2CParams, log_dir="./logs/a2c"):
 
 
 if __name__ == "__main__":
-    params = A2CParams(lr=0.01, num_rollout_steps=32)
+    #TODO(tilo): is still not learning properly!
+    params = A2CParams(lr=0.01, num_rollout_steps=32,num_batches=2000,seed=1)
     agent, env = run_cartpole_a2c(params)
 
     env = Monitor(env, "./vid", video_callable=lambda episode_id: True, force=True)
