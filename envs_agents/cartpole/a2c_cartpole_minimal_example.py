@@ -12,7 +12,8 @@ from gym.wrappers import Monitor
 from torch.distributions import Categorical
 from tqdm import tqdm
 
-from envs_agents.cartpole.common import train_batch
+from envs_agents.cartpole.common import train_batch, gather_exp_via_rollout, \
+    build_experience_memory
 from rlutil.dictlist import DictList
 from rlutil.experience_memory import ExperienceMemory
 
@@ -173,17 +174,6 @@ class World(NamedTuple):
     exp_mem: ExperienceMemory
 
 
-def gather_exp_via_rollout(
-    env, agent, exp_mem: ExperienceMemory, num_rollout_steps
-):
-    for _ in range(num_rollout_steps):
-        env_step:NamedTuple = env.step(AgentStep(**exp_mem[exp_mem.last_written_idx].agent))
-        agent_step:NamedTuple = agent.step(env_step)
-        exp_mem.store_single(
-            DictList.build({"env": env_step._asdict(), "agent": agent_step._asdict()})
-        )
-
-
 def collect_experiences_calc_advantage(w: World, params: A2CParams) -> Rollout:
     assert w.exp_mem.current_idx == 0
     w.exp_mem.last_becomes_first()
@@ -244,13 +234,7 @@ def run_cartpole_a2c(args: A2CParams, log_dir="./logs/a2c"):
     agent: CartPoleA2CAgent = CartPoleA2CAgent(
         env.observation_space, env.action_space, args
     )
-    initial_env_step = env.reset()
-    with torch.no_grad():
-        initial_agent_step = agent.step(initial_env_step)
-    initial_exp = DictList.build(
-        {"env": initial_env_step._asdict(), "agent": initial_agent_step._asdict()}
-    )
-    exp_mem = ExperienceMemory(args.num_rollout_steps + 1, initial_exp)
+    exp_mem = build_experience_memory(agent, env, args.num_rollout_steps)
 
     w = World(env, agent, exp_mem)
     with torch.no_grad():
