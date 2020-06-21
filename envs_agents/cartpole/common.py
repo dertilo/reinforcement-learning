@@ -1,6 +1,8 @@
-from typing import NamedTuple
+from typing import NamedTuple, Any
 
+import numpy as np
 import torch
+from gym import Wrapper
 
 from envs_agents.cartpole.a2c_cartpole_minimal_example import AgentStep
 from rlutil.dictlist import DictList
@@ -39,3 +41,51 @@ def build_experience_memory(agent, env, num_rollout_steps):
     )
     exp_mem = ExperienceMemory(num_rollout_steps + 1, initial_exp)
     return exp_mem
+
+
+class CartPoleEnvSelfReset(Wrapper):
+    def step(self, action: DictList):
+        agent_action = int(action.actions.numpy()[0])
+        obs, _, done, info = super().step(agent_action)
+
+        if done:
+            obs = self.reset().observation
+        reward = -10.0 if done else 1.0
+        return self._form_output(obs, reward, done)
+
+    def reset(self):
+        obs = super().reset()
+        return self._form_output(obs, 0, False)
+
+    def _form_output(self, obs, reward, done):
+        d = self._torchify(
+            {
+                "observation": np.expand_dims(obs, 0).astype("float32"),
+                "reward": np.array([reward], dtype=np.float32),
+                "done": np.array([int(done)]),
+                "info": np.array([int(done)]),
+            }
+        )
+        return EnvStep(**d)
+
+    def _torchify(self, d):
+        return {k: torch.from_numpy(v) for k, v in d.items()}
+
+
+class EnvStep(NamedTuple):
+    observation: torch.FloatTensor
+    reward: torch.FloatTensor
+    done: torch.LongTensor
+    info: torch.LongTensor
+
+class World(NamedTuple):
+    env: CartPoleEnvSelfReset
+    agent: Any # TODO(tilo)
+    exp_mem: ExperienceMemory
+
+
+class Rollout(NamedTuple):
+    env_steps: EnvStep
+    agent_steps: AgentStep
+    advantages: torch.FloatTensor
+    returnn: torch.FloatTensor

@@ -2,20 +2,17 @@ import os
 from typing import NamedTuple
 
 import gym
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from gym import Wrapper
 from gym.envs.classic_control import CartPoleEnv
 from gym.wrappers import Monitor
 from torch.distributions import Categorical
 from tqdm import tqdm
 
 from envs_agents.cartpole.common import train_batch, gather_exp_via_rollout, \
-    build_experience_memory
+    build_experience_memory, World, CartPoleEnvSelfReset, EnvStep, Rollout
 from rlutil.dictlist import DictList
-from rlutil.experience_memory import ExperienceMemory
 
 
 def flatten_parallel_rollout(d):
@@ -41,52 +38,9 @@ class A2CParams(NamedTuple):
     num_batches: int = 2000
 
 
-class EnvStep(NamedTuple):
-    observation: torch.FloatTensor
-    reward: torch.FloatTensor
-    done: torch.LongTensor
-    info: torch.LongTensor
-
-
 class AgentStep(NamedTuple):
     actions: torch.LongTensor
     v_values: torch.FloatTensor
-
-
-class Rollout(NamedTuple):
-    env_steps: EnvStep
-    agent_steps: AgentStep
-    advantages: torch.FloatTensor
-    returnn: torch.FloatTensor
-
-
-class CartPoleEnvSelfReset(Wrapper):
-    def step(self, action: DictList):
-        agent_action = int(action.actions.numpy()[0])
-        obs, _, done, info = super().step(agent_action)
-
-        if done:
-            obs = self.reset().observation
-        reward = -10.0 if done else 1.0
-        return self._form_output(obs, reward, done)
-
-    def reset(self):
-        obs = super().reset()
-        return self._form_output(obs, 0, False)
-
-    def _form_output(self, obs, reward, done):
-        d = self._torchify(
-            {
-                "observation": np.expand_dims(obs, 0).astype("float32"),
-                "reward": np.array([reward], dtype=np.float32),
-                "done": np.array([int(done)]),
-                "info": np.array([int(done)]),
-            }
-        )
-        return EnvStep(**d)
-
-    def _torchify(self, d):
-        return {k: torch.from_numpy(v) for k, v in d.items()}
 
 
 class CartPoleA2CAgent(nn.Module):
@@ -166,12 +120,6 @@ def generalized_advantage_estimation(
         )
         next_advantage = advantage_buffer[i]
     return advantage_buffer
-
-
-class World(NamedTuple):
-    env: CartPoleEnvSelfReset
-    agent: CartPoleA2CAgent
-    exp_mem: ExperienceMemory
 
 
 def collect_experiences_calc_advantage(w: World, params: A2CParams) -> Rollout:
