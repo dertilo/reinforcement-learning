@@ -7,6 +7,7 @@ import torch.nn as nn
 import numpy as np
 from gym.envs.classic_control import CartPoleEnv
 from gym.wrappers import Monitor
+from torch import optim
 from torch.optim.rmsprop import RMSprop
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -137,8 +138,8 @@ def calc_loss(agent, estimated_return, observation, action):
     return loss_value
 
 
-def train_agent(agent: CartPoleAgent, env: gym.Env, num_batches=3_000, batch_size=32):
-    optimizer = RMSprop(agent.parameters())
+def train(agent: CartPoleAgent, env: gym.Env, num_batches=3_000, batch_size=32):
+    optimizer = optim.Adam(agent.parameters(), lr=1e-2)
     exp_iter = iter(experience_generator(agent, env))
 
     for it in tqdm(range(num_batches)):
@@ -161,7 +162,7 @@ def run_cartpole_dqn(num_batches=1000, batch_size=32, log_dir="./logs/dqn"):
     from baselines.bench import Monitor as BenchMonitor
 
     env = BenchMonitor(env, log_dir, allow_early_resets=True)
-    train_agent(agent, env, num_batches=num_batches, batch_size=batch_size)
+    train(agent, env, num_batches=num_batches, batch_size=batch_size)
     return agent, env
 
 
