@@ -52,22 +52,6 @@ class AgentStep(NamedTuple):
     v_values: torch.FloatTensor
 
 
-class EnvStepper:
-    @abc.abstractmethod
-    def step(self, agent_step: AgentStep) -> EnvStep:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def reset(self) -> EnvStep:
-        raise NotImplementedError
-
-
-class AgentStepper:
-    @abc.abstractmethod
-    def step(self, env_step: EnvStep) -> AgentStep:
-        raise NotImplementedError
-
-
 class Rollout(NamedTuple):
     env_steps: EnvStep
     agent_steps: AgentStep
@@ -75,7 +59,7 @@ class Rollout(NamedTuple):
     returnn: torch.FloatTensor
 
 
-class CartPoleEnvSelfReset(Wrapper, EnvStepper):
+class CartPoleEnvSelfReset(Wrapper):
     def step(self, action: DictList):
         agent_action = int(action.actions.numpy()[0])
         obs, _, done, info = super().step(agent_action)
@@ -104,7 +88,7 @@ class CartPoleEnvSelfReset(Wrapper, EnvStepper):
         return {k: torch.from_numpy(v) for k, v in d.items()}
 
 
-class CartPoleA2CAgent(nn.Module, AgentStepper):
+class CartPoleA2CAgent(nn.Module):
     def __init__(self, obs_space, action_space, params: A2CParams):
         super().__init__()
         self.num_actions = action_space.n
@@ -202,11 +186,11 @@ def train_batch(agent, p: A2CParams, batch, optimizer):
 
 
 def gather_exp_via_rollout(
-    env: EnvStepper, agent: AgentStepper, exp_mem: ExperienceMemory, num_rollout_steps
+    env, agent, exp_mem: ExperienceMemory, num_rollout_steps
 ):
     for _ in range(num_rollout_steps):
-        env_step = env.step(AgentStep(**exp_mem[exp_mem.last_written_idx].agent))
-        agent_step = agent.step(env_step)
+        env_step:NamedTuple = env.step(AgentStep(**exp_mem[exp_mem.last_written_idx].agent))
+        agent_step:NamedTuple = agent.step(env_step)
         exp_mem.store_single(
             DictList.build({"env": env_step._asdict(), "agent": agent_step._asdict()})
         )
