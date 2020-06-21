@@ -1,4 +1,5 @@
 import abc
+import os
 from typing import Dict, Any, NamedTuple
 
 import gym
@@ -11,7 +12,6 @@ from gym.wrappers import Monitor
 from torch.distributions import Categorical
 from tqdm import tqdm
 
-from dqn_cartpole_minimal_example import plot_average_game_length
 from rlutil.dictlist import DictList
 from rlutil.experience_memory import ExperienceMemory
 
@@ -162,6 +162,7 @@ class A2CParams(NamedTuple):
     discount: float = 0.99
     lr: float = 1e-2
     gae_lambda: float = 0.95
+    seed:int=0
 
 
 class World(NamedTuple):
@@ -252,40 +253,43 @@ def visualize_it(env: gym.Env, agent: CartPoleA2CAgent, max_steps=1000):
                 print("only %d steps" % steps)
 
 
-if __name__ == "__main__":
-    params = A2CParams(lr=0.01, num_rollout_steps=5)
+def run_cartpole_a2c(params:A2CParams,log_dir="./logs/a2c"):
+    os.makedirs(log_dir, exist_ok=True)
     env = CartPoleDictEnv()
+    env.seed(params.seed)
+    torch.manual_seed(params.seed)
     agent: CartPoleA2CAgent = CartPoleA2CAgent(env.observation_space, env.action_space)
     # x = env.reset()
     # agent.step(x)
-
     initial_env_step = env.reset()
     with torch.no_grad():
         initial_agent_step = agent.step(initial_env_step)
-
     initial_exp = DictList.build(
         {"env": initial_env_step._asdict(), "agent": initial_agent_step._asdict()}
     )
-
     exp_mem = ExperienceMemory(params.num_rollout_steps + 1, initial_exp)
+
+    from baselines.bench import Monitor as BenchMonitor
+    env = BenchMonitor(env, log_dir, allow_early_resets=True)
 
     w = World(env, agent, exp_mem)
     with torch.no_grad():
         w.agent.eval()
         gather_exp_via_rollout(w.env, w.agent, w.exp_mem, params.num_rollout_steps)
-
     optimizer = torch.optim.RMSprop(agent.parameters(), params.lr)
-
     num_epochs = 2000
-    dones = [
-        done
-        for k in tqdm(range(num_epochs))
-        for done in train_batch(w, params, optimizer)
-    ]
 
-    plot_average_game_length(
-        dones, avg_size=1000, png_file="images/learn_curve_a2c_cartpole.png",
-    )
+    for k in tqdm(range(num_epochs)):
+        train_batch(w, params, optimizer)
+
+    return agent, env
+
+
+
+if __name__ == "__main__":
+    params = A2CParams(lr=0.01, num_rollout_steps=32)
+    agent, env = run_cartpole_a2c(params)
+
     env = Monitor(env, "./vid", video_callable=lambda episode_id: True, force=True)
 
     visualize_it(env, agent)
