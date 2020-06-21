@@ -9,6 +9,7 @@ from envs_agents.cartpole.reinforce_cartpole_minimal_example import (
 )
 import numpy as np
 
+
 def lr_fn(r):
     x = np.cumsum(r.monitor.l)
     y = smooth(r.monitor.r, radius=10)
@@ -21,14 +22,27 @@ def tr_fn(r):
     return x, y
 
 
-if __name__ == "__main__":
-    run_cartpole_dqn()
+def plot_save_results(xy_fn, file="logs/time_rewards.png"):
+    f, ax = pu.plot_results(
+        results,
+        xy_fn=xy_fn,
+        split_fn=lambda _: "",
+        average_group=True,
+        shaded_err=False,
+    )
+    f.savefig(file)
 
-    args = RLparams(num_games=500)
-    run_cartpole_reinforce(args)
+
+if __name__ == "__main__":
+    [run_cartpole_dqn(log_dir="logs/dqn-%d" % k, seed=k) for k in range(3)]
+
+    [
+        run_cartpole_reinforce(
+            RLparams(num_games=200, seed=k), log_dir="logs/reinforce-%d" % k
+        )
+        for k in range(3)
+    ]
 
     results = pu.load_results("logs")
-    f, ax = pu.plot_results(results, xy_fn=lr_fn, split_fn=lambda _: "")
-    f.savefig("logs/steps_rewards.png")
-    f, ax = pu.plot_results(results, xy_fn=tr_fn, split_fn=lambda _: "")
-    f.savefig("logs/time_rewards.png")
+    plot_save_results(lr_fn, "logs/steps_rewards.png")
+    plot_save_results(tr_fn, "logs/time_rewards.png")

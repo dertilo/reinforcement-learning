@@ -155,9 +155,11 @@ def train(agent: CartPoleAgent, env: gym.Env, num_batches=3_000, batch_size=32):
         optimizer.step()
 
 
-def run_cartpole_dqn(num_batches=1000, batch_size=32, log_dir="./logs/dqn"):
+def run_cartpole_dqn(num_batches=1000, batch_size=32, log_dir="./logs/dqn",seed=0):
     os.makedirs(log_dir, exist_ok=True)
     env = CartPoleEnv()
+    env.seed(seed)
+    torch.manual_seed(seed)
     agent = CartPoleAgent(env.observation_space, env.action_space)
     from baselines.bench import Monitor as BenchMonitor
 
