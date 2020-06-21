@@ -234,7 +234,7 @@ def visualize_it(env: gym.Env, agent: CartPoleA2CAgent, max_steps=1000):
 from baselines.bench import Monitor as BenchMonitor
 
 
-def run_cartpole_a2c(params: A2CParams, log_dir="./logs/a2c"):
+def run_cartpole_a2c(args: A2CParams, log_dir="./logs/a2c"):
     os.makedirs(log_dir, exist_ok=True)
     env = CartPoleEnv()
     env = BenchMonitor(env, log_dir, allow_early_resets=True)
@@ -242,7 +242,7 @@ def run_cartpole_a2c(params: A2CParams, log_dir="./logs/a2c"):
     # env.seed(params.seed)
     # torch.manual_seed(params.seed)
     agent: CartPoleA2CAgent = CartPoleA2CAgent(
-        env.observation_space, env.action_space, params
+        env.observation_space, env.action_space, args
     )
     initial_env_step = env.reset()
     with torch.no_grad():
@@ -250,20 +250,20 @@ def run_cartpole_a2c(params: A2CParams, log_dir="./logs/a2c"):
     initial_exp = DictList.build(
         {"env": initial_env_step._asdict(), "agent": initial_agent_step._asdict()}
     )
-    exp_mem = ExperienceMemory(params.num_rollout_steps + 1, initial_exp)
+    exp_mem = ExperienceMemory(args.num_rollout_steps + 1, initial_exp)
 
     w = World(env, agent, exp_mem)
     with torch.no_grad():
         w.agent.eval()
-        gather_exp_via_rollout(w.env, w.agent, w.exp_mem, params.num_rollout_steps)
-    optimizer = torch.optim.Adam(agent.parameters(), params.lr)
+        gather_exp_via_rollout(w.env, w.agent, w.exp_mem, args.num_rollout_steps)
+    optimizer = torch.optim.Adam(agent.parameters(), args.lr)
 
-    for k in tqdm(range(params.num_batches)):
+    for k in tqdm(range(args.num_batches)):
         with torch.no_grad():
             w.agent.eval()
-            rollout = collect_experiences_calc_advantage(w, params)
+            rollout = collect_experiences_calc_advantage(w, args)
 
-        train_batch(w.agent, params, rollout, optimizer)
+        train_batch(w.agent, rollout, optimizer)
 
     return agent, env
 
