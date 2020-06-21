@@ -28,11 +28,24 @@ def flatten_array(v):
     return v.transpose(0, 1).reshape(v.shape[0] * v.shape[1], *v.shape[2:])
 
 
+class A2CParams(NamedTuple):
+    entropy_coef: float = 0.01
+    value_loss_coef: float = 0.5
+    max_grad_norm: float = 0.5
+    num_rollout_steps: int = 4
+    discount: float = 0.99
+    lr: float = 1e-2
+    gae_lambda: float = 0.95
+    seed: int = 0
+    num_batches: int = 2000
+
+
 class EnvStep(NamedTuple):
     observation: torch.FloatTensor
     reward: torch.FloatTensor
     done: torch.LongTensor
-    info:torch.LongTensor
+    info: torch.LongTensor
+
 
 class AgentStep(NamedTuple):
     actions: torch.LongTensor
@@ -92,10 +105,11 @@ class CartPoleEnvSelfReset(Wrapper, EnvStepper):
 
 
 class CartPoleA2CAgent(nn.Module, AgentStepper):
-    def __init__(self, obs_space, action_space):
+    def __init__(self, obs_space, action_space, params: A2CParams):
         super().__init__()
         self.num_actions = action_space.n
         self.embedding_size = 8
+        self.params = params
         self.nn = nn.Sequential(
             *[
                 nn.Linear(obs_space.shape[0], 24),
@@ -138,6 +152,20 @@ class CartPoleA2CAgent(nn.Module, AgentStepper):
         assert not values.requires_grad
         return AgentStep(actions, values.data)
 
+    def loss(self, batch: Rollout):
+        dist, value = self.calc_dist_value(batch.env_steps.observation)
+        entropy = dist.entropy().mean()
+        policy_loss = -(
+            dist.log_prob(batch.agent_steps.actions) * batch.advantages
+        ).mean()
+        value_loss = (value - batch.returnn).pow(2).mean()
+        loss = (
+            policy_loss
+            - self.params.entropy_coef * entropy
+            + self.params.value_loss_coef * value_loss
+        )
+        return loss
+
 
 def generalized_advantage_estimation(
     rewards, values, dones, num_rollout_steps, discount, gae_lambda
@@ -155,46 +183,22 @@ def generalized_advantage_estimation(
     return advantage_buffer
 
 
-class A2CParams(NamedTuple):
-    entropy_coef: float = 0.01
-    value_loss_coef: float = 0.5
-    max_grad_norm: float = 0.5
-    num_rollout_steps: int = 4
-    discount: float = 0.99
-    lr: float = 1e-2
-    gae_lambda: float = 0.95
-    seed:int=0
-    num_batches:int=2000
-
-
 class World(NamedTuple):
     env: CartPoleEnvSelfReset
     agent: CartPoleA2CAgent
     exp_mem: ExperienceMemory
 
 
-def train_batch(w: World, p: A2CParams, optimizer):
-    with torch.no_grad():
-        w.agent.eval()
-        rollout = collect_experiences_calc_advantage(w, p)
+def train_batch(agent, p: A2CParams, batch, optimizer):
 
-    w.agent.train()
-    loss = calc_loss(rollout, w, p)
+    agent.train()
+    loss = agent.loss(batch)
 
     optimizer.zero_grad()
     loss.backward()
-    torch.nn.utils.clip_grad_norm_(w.agent.parameters(), p.max_grad_norm)
+    torch.nn.utils.clip_grad_norm_(agent.parameters(), p.max_grad_norm)
     optimizer.step()
-    return rollout.env_steps.done.numpy()
-
-
-def calc_loss(roll: Rollout, w: World, p: A2CParams):
-    dist, value = w.agent.calc_dist_value(roll.env_steps.observation)
-    entropy = dist.entropy().mean()
-    policy_loss = -(dist.log_prob(roll.agent_steps.actions) * roll.advantages).mean()
-    value_loss = (value - roll.returnn).pow(2).mean()
-    loss = policy_loss - p.entropy_coef * entropy + p.value_loss_coef * value_loss
-    return loss
+    return batch.env_steps.done.numpy()
 
 
 def gather_exp_via_rollout(
@@ -247,23 +251,27 @@ def visualize_it(env: gym.Env, agent: CartPoleA2CAgent, max_steps=1000):
 
                 action = agent.step(env_step)
                 env_step = env.step(DictList.build(action._asdict()))
-                if not isinstance(env_step,EnvStep):
+                if not isinstance(env_step, EnvStep):
                     env_step = EnvStep(*env_step)
                 if env_step.done:
                     break
             if steps < max_steps - 1:
                 print("only %d steps" % steps)
 
+
 from baselines.bench import Monitor as BenchMonitor
 
-def run_cartpole_a2c(params:A2CParams,log_dir="./logs/a2c"):
+
+def run_cartpole_a2c(params: A2CParams, log_dir="./logs/a2c"):
     os.makedirs(log_dir, exist_ok=True)
     env = CartPoleEnv()
     env = BenchMonitor(env, log_dir, allow_early_resets=True)
     env = CartPoleEnvSelfReset(env)
     env.seed(params.seed)
     torch.manual_seed(params.seed)
-    agent: CartPoleA2CAgent = CartPoleA2CAgent(env.observation_space, env.action_space)
+    agent: CartPoleA2CAgent = CartPoleA2CAgent(
+        env.observation_space, env.action_space, params
+    )
     initial_env_step = env.reset()
     with torch.no_grad():
         initial_agent_step = agent.step(initial_env_step)
@@ -279,10 +287,13 @@ def run_cartpole_a2c(params:A2CParams,log_dir="./logs/a2c"):
     optimizer = torch.optim.Adam(agent.parameters(), params.lr)
 
     for k in tqdm(range(params.num_batches)):
-        train_batch(w, params, optimizer)
+        with torch.no_grad():
+            w.agent.eval()
+            rollout = collect_experiences_calc_advantage(w, params)
+
+        train_batch(w.agent, params, rollout, optimizer)
 
     return agent, env
-
 
 
 if __name__ == "__main__":
