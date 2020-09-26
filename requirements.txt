@@ -4,5 +4,5 @@ matplotlib
 scipy
 torch
 tqdm
-tensorflow==1.14
+tensorflow==1.15.4
 # apt-get install ffmpeg
