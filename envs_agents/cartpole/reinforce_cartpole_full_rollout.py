@@ -1,7 +1,6 @@
 import os
 from typing import NamedTuple
 
-from baselines.bench import Monitor as BenchMonitor
 import gym
 import numpy as np
 import torch
@@ -20,7 +19,7 @@ based on: https://github.com/pytorch/examples/blob/master/reinforcement_learning
 eps = np.finfo(np.float32).eps.item()
 
 
-class RLparams(NamedTuple):
+class REfullrolloutArgs(NamedTuple):
     num_games: int = 1000
     gamma: float = 0.99
     seed: int = 543
@@ -46,43 +45,44 @@ class PolicyAgent(nn.Module):
         return action.item(), m.log_prob(action)
 
 
-def collect_experience(env: gym.Env, agent: PolicyAgent):
-    state, ep_reward = env.reset(), 0
-    exp = []
+def collect_experience(
+    env: gym.Env, agent: PolicyAgent
+) -> list[tuple[int, float, float]]:
+    observation, ep_reward = env.reset(), 0
+    experience = []
     for t in range(1, 1000):  # Don't infinite loop while learning
-        action, log_probs = agent.step(state)
-        state, reward, done, _ = env.step(action)
-        exp.append((action, log_probs, reward))
-        ep_reward += reward
+        action, log_probs = agent.step(observation)
+        observation, reward, done, _ = env.step(action)
+        experience.append((action, log_probs, reward))
         if done:
             break
 
-    return ep_reward, exp
+    return experience
 
 
-def calc_returns(exp, gamma):
+def calc_returns(exp: list[tuple[int, float, float]], gamma):
     returns = []
-    R = 0
-    for action, log_prob, r in reversed(exp):
-        R = r + gamma * R
-        returns.insert(0, R)
+    Returrn = 0  # discounted sum
+    for action, log_prob, reward in reversed(exp):
+        Returrn = reward + gamma * Returrn
+        returns.insert(0, Returrn)
     returns = torch.tensor(returns)
     returns = (returns - returns.mean()) / (returns.std() + eps)
     return returns
 
 
-def calc_loss(exp, gamma):
+def calc_loss(exp: list[tuple[int, float, float]], gamma: float):
     returns = calc_returns(exp, gamma)
     policy_loss = [-log_prob * R for (_, log_prob, _), R in zip(exp, returns)]
     policy_loss = torch.cat(policy_loss).sum()
     return policy_loss
 
 
-def train(env: gym.Env, agent: PolicyAgent, args: RLparams):
+def train(env: gym.Env, agent: PolicyAgent, args: REfullrolloutArgs):
     optimizer = optim.Adam(agent.parameters(), lr=1e-2)
 
     for k in tqdm(range(args.num_games)):
-        ep_reward, exp = collect_experience(env, agent)
+        exp = collect_experience(env, agent)
 
         policy_loss = calc_loss(exp, args.gamma)
 
@@ -91,20 +91,20 @@ def train(env: gym.Env, agent: PolicyAgent, args: RLparams):
         optimizer.step()
 
 
-def run_cartpole_reinforce(args, log_dir="./logs/reinforce"):
+def run_cartpole_reinforce_full_rollout(args, log_dir="./logs/reinforce_full_rollout"):
     os.makedirs(log_dir, exist_ok=True)
     env = CartPoleEnv()
-    agent: PolicyAgent = PolicyAgent(env.observation_space.shape[0], env.action_space.n)
+    agent = PolicyAgent(env.observation_space.shape[0], env.action_space.n)
     env.seed(args.seed)
     torch.manual_seed(args.seed)
-    env = BenchMonitor(env, log_dir, allow_early_resets=True)
+    # env = BenchMonitor(env, log_dir, allow_early_resets=True)
     train(env, agent, args)
     return agent, env
 
 
 if __name__ == "__main__":
-    args = RLparams()
-    agent, env = run_cartpole_reinforce(args)
+    args = REfullrolloutArgs(num_games=100)
+    agent, env = run_cartpole_reinforce_full_rollout(args)
 
     env = Monitor(env, "./vid", video_callable=lambda episode_id: True, force=True)
 
